@@ -1,0 +1,28 @@
+version : '3.9'
+services:
+  web:
+    image: bullet_v1
+    command: uwsgi --socket 0.0.0.0:6050 --module app:app --http-timeout 600  --processes 4 --threads 8 --buffer-size 65535
+    ports:
+      - "5000:5000"
+    volumes:
+      - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
+      - D:\Development 2.O\version_1\data:/data
+  mongo_service_users:
+    image: mongo:latest
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=test1
+      - MONGO_INITDB_ROOT_PASSWORD=test1
+    volumes:
+      - D:\Development 2.O\version_1\mongo_dbs\users:/data/db
+    healthcheck:
+        test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+        interval: 5s
+        timeout: 5s
+        retries: 2
+        start_period: 5s
+    ports:
+      - 127.0.0.1:5001:27017
+    
+
