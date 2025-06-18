@@ -1,10 +1,10 @@
-version : '3.9'
 services:
   web:
-    image: bullet_v1
-    command: uwsgi --socket 0.0.0.0:6050 --module app:app --http-timeout 600  --processes 4 --threads 8 --buffer-size 65535
+    image: bullet_hire_v1
+    # command: uwsgi --socket 0.0.0.0:5000 --module app:app --http-timeout 600  --processes 4 --threads 8 --buffer-size 65535
+    command: python app.py
     ports:
-      - "5000:5000"
+      - 5000:5000
     volumes:
       - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
       - D:\Development 2.O\version_1\data:/data
@@ -12,8 +12,8 @@ services:
     image: mongo:latest
     restart: unless-stopped
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=test1
-      - MONGO_INITDB_ROOT_PASSWORD=test1
+      - MONGO_INITDB_ROOT_USERNAME=users
+      - MONGO_INITDB_ROOT_PASSWORD=users
     volumes:
       - D:\Development 2.O\version_1\mongo_dbs\users:/data/db
     healthcheck:
@@ -26,3 +26,6 @@ services:
       - 127.0.0.1:5001:27017
     
 
+# docker-compose -p bullet_hire_v1 down
+# docker build -t bullet_hire_v1 .
+# docker-compose -p bullet_hire_v1 up -d
