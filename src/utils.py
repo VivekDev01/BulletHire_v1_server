@@ -1,4 +1,8 @@
 import bcrypt
+import base64
+
+def pad_base64(b64_string):
+    return b64_string + '=' * (-len(b64_string) % 4)
 
 
 def generate_password_hash(password: str) -> str:
