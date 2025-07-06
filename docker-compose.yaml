@@ -8,6 +8,21 @@ services:
     volumes:
       - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
       - D:\Development 2.O\version_1\data:/data
+    depends_on:
+      - mongo_service_users
+      - mongo_service_data
+  agent:
+    image: hr_agent
+    command: uvicorn src/main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
+      - D:\Development 2.O\version_1\data\uploads:/uploads
+      - D:\Development 2.O\version_1\data\payloads:/payloads
+    depends_on:
+      - mongo_service_users
+      - mongo_service_data
   mongo_service_users:
     image: mongo:latest
     restart: unless-stopped
@@ -24,6 +39,22 @@ services:
         start_period: 5s
     ports:
       - 127.0.0.1:5001:27017
+  mongo_service_data:
+    image: mongo:latest
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=data
+      - MONGO_INITDB_ROOT_PASSWORD=data
+    volumes:
+      - D:\Development 2.O\version_1\mongo_dbs\data:/data/db
+    healthcheck:
+        test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+        interval: 5s
+        timeout: 5s
+        retries: 2
+        start_period: 5s
+    ports:
+      - 127.0.0.1:5002:27017
     
 
 # docker-compose -p bullet_hire_v1 down

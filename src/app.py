@@ -10,10 +10,16 @@ from functools import wraps
 
 
 config = yaml.load(open("/src/config.yaml"), Loader=yaml.FullLoader)
+
 users_db_creds = config['users_db_credentials']
 client_web = pymongo.MongoClient(users_db_creds['service'], users_db_creds['port'], username=users_db_creds['username'], password=users_db_creds['password'])
 users_db = client_web[users_db_creds['db']]
 print('list of collections in users_db:', users_db.list_collection_names(), flush=True)
+
+data_db_credentials = config['data_db_credentials']
+client_data = pymongo.MongoClient(data_db_credentials['service'], data_db_credentials['port'], username=data_db_credentials['username'], password=data_db_credentials['password'])
+data_db = client_data[data_db_credentials['db']]
+print('list of collections in data_db:', data_db.list_collection_names(), flush=True)
 
 app = Flask(__name__)
 cors = flask_cors.CORS(app)
