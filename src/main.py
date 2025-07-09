@@ -36,19 +36,16 @@ app.include_router(linkedin_router)
 users_db_creds = config['users_db_credentials']
 client_web = pymongo.MongoClient(users_db_creds['service'], users_db_creds['port'], username=users_db_creds['username'], password=users_db_creds['password'])
 users_db = client_web[users_db_creds['db']]
-print('list of collections in users_db:', users_db.list_collection_names(), flush=True)
 
 data_db_credentials = config['data_db_credentials']
 client_data = pymongo.MongoClient(data_db_credentials['service'], data_db_credentials['port'], username=data_db_credentials['username'], password=data_db_credentials['password'])
 data_db = client_data[data_db_credentials['db']]
-print('list of collections in data_db:', data_db.list_collection_names(), flush=True)
 
 def authentication_required(request: Request):
     auth_header = request.headers.get('Authorization')
     if not auth_header or len(auth_header.split()) != 2:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Bad authorization header')
     bearer_token = auth_header.split()[1]
-    print('Bearer token:', bearer_token, flush=True)
     try:
         data = jwt.decode(bearer_token, config['secret_key'], algorithms=["HS256"])
     except Exception as e:
@@ -151,7 +148,7 @@ def get_user_api(token_data: dict = Depends(authentication_required)):
     try:
         user = get_user(token_data)
         if user:
-            return {'user': user, 'status': True}, 200
+            return JSONResponse(status_code=200, content={'user': user, 'status': True})
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
     except Exception as e:
