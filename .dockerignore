@@ -1,0 +1,14 @@
+hr_agent/dockerfile
+hr_agent/.git
+hr_agent/.gitignore
+hr_agent/requirements.txt
+hr_agent/.env
+hr_agent/credentials.json
+hr_agent/token.json
+src/hr_agent/dockerfile
+src/hr_agent/.git
+src/hr_agent/.gitignore
+src/hr_agent/requirements.txt
+src/hr_agent/.env
+src/hr_agent/credentials.json
+src/hr_agent/token.json

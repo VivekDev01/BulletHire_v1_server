@@ -1,25 +1,15 @@
 services:
   web:
     image: bullet_hire_v1
-    # command: uwsgi --socket 0.0.0.0:5000 --module app:app --http-timeout 600  --processes 4 --threads 8 --buffer-size 65535
-    command: python app.py
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - 5000:5000
+      - 8000:8000
     volumes:
       - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
       - D:\Development 2.O\version_1\data:/data
-    depends_on:
-      - mongo_service_users
-      - mongo_service_data
-  agent:
-    image: hr_agent
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
-    ports:
-      - "8000:8000"
-    volumes:
-      - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
-      - D:\Development 2.O\version_1\data\uploads:/uploads
-      - D:\Development 2.O\version_1\data\payloads:/payloads
+      - D:\Development 2.O\version_1\server\src\hr_agent\.env:/src/.env
+      - D:\Development 2.O\version_1\server\src\hr_agent\credentials.json:/src/credentials.json
+      - D:\Development 2.O\version_1\server\src\hr_agent\token.json:/src/token.json
     depends_on:
       - mongo_service_users
       - mongo_service_data
@@ -57,6 +47,7 @@ services:
       - 127.0.0.1:5002:27017
     
 
-# docker-compose -p bullet_hire_v1 down
-# docker build -t bullet_hire_v1 .
-# docker-compose -p bullet_hire_v1 up -d
+# docker-compose -p bullet_hire_v1 down;
+# docker build -t bullet_hire_v1 .;
+# docker-compose -p bullet_hire_v1 up -d;
+# docker logs -f bullet_hire_v1-web-1;
