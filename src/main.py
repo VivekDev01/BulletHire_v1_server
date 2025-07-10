@@ -182,7 +182,8 @@ def create_job_description(data: jd_data, dep=Depends(authentication_required)):
         "education": data.education,
         "link": data.link,
         "user_id": user_data['_id'],
-        "created_at": datetime.datetime.utcnow()
+        "created_at": datetime.datetime.utcnow(),        
+        "posted": False
     }
     data_db['job_descriptions'].insert_one(payload)
     return JSONResponse(status_code=200, content={"message": 'Job description created successfully', "job_id": jd_id})
@@ -192,6 +193,8 @@ def get_job_description(jd_id: str, dep=Depends(authentication_required)):
     try:
         job = data_db['job_descriptions'].find_one({"_id": jd_id})
         if job:
+            if job['posted']:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job description already posted")
             job['created_at'] =  str(job['created_at']) if 'created_at' in job else None
             return JSONResponse(status_code=200, content={"job": job})
         else:
@@ -210,11 +213,49 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
         if job:
             job['jd'] = request.jd
             data_db['job_descriptions'].update_one({"_id": jd_id}, {"$set": {"jd": request.jd}})
+            user_data = get_user(dep)
+            post = {
+                "user": {
+                        "_id": user_data['_id'],
+                        "username": user_data.get('username', ''),
+                        "email": user_data.get('email', ''),
+                        },
+                "post_type": "job",
+                "jd_id": jd_id,
+                "created_at": datetime.datetime.utcnow(),
+                "content": request.jd,
+                "interactions":{
+                    "likes": [],
+                    "comments": [],
+                    "shares": []
+                },
+
+            }
+            data_db['posts'].insert_one(post)
+            data_db['job_descriptions'].update_one({"_id": jd_id}, {"$set": {"posted": True}})
             return JSONResponse(status_code=200, content={"message": "Job is posted successfully"})
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job description not found")
     except Exception as e:
         print(f"Error finalizing job description: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+@app.get('/get_posts')
+def get_posts(dep=Depends(authentication_required)):
+    try:
+        all_posts = []
+        posts_cursor = data_db['posts'].find({}).sort("created_at", -1)
+        for post in posts_cursor:
+            post['_id'] = str(post['_id'])
+            post['created_at'] = str(post['created_at'])
+            all_posts.append(post)
+        if all_posts:
+            return JSONResponse(status_code=200, content={"posts": all_posts})
+        else:
+            return JSONResponse(status_code=404, content={"message": "No posts found"})
+    except Exception as e:
+        print(f"Error fetching posts: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
 
