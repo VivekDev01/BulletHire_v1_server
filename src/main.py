@@ -192,10 +192,30 @@ def get_job_description(jd_id: str, dep=Depends(authentication_required)):
     try:
         job = data_db['job_descriptions'].find_one({"_id": jd_id})
         if job:
+            job['created_at'] =  str(job['created_at']) if 'created_at' in job else None
             return JSONResponse(status_code=200, content={"job": job})
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job description not found")
     except Exception as e:
+        print(f"Error fetching job description: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+class FinalizeJDRequest(BaseModel):
+    jd: str
+@app.post('/finalize_jd/{jd_id}')
+def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends(authentication_required)):
+    try:
+        job = data_db['job_descriptions'].find_one({"_id": jd_id})
+        if job:
+            job['jd'] = request.jd
+            data_db['job_descriptions'].update_one({"_id": jd_id}, {"$set": {"jd": request.jd}})
+            return JSONResponse(status_code=200, content={"message": "Job is posted successfully"})
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job description not found")
+    except Exception as e:
+        print(f"Error finalizing job description: {e}", flush=True)
+        traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
 
 @app.post("/post_on_linkedin")
@@ -204,6 +224,8 @@ def post_on_linkedin(jd:str, dep=Depends(authentication_required)):
         response = post_jd_on_linkedin(jd)
         return JSONResponse(status_code=200, content={"response": response})
     except Exception as e:
+        print(f"Error posting on LinkedIn: {e}", flush=True)
+        traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
 
 @app.post("/select_candidates")
@@ -212,6 +234,8 @@ def select_candidates(jd:str, dep=Depends(authentication_required)):
         response = select_send_email(jd)
         return JSONResponse(status_code=200, content={'response': response})
     except Exception as e:
+        print(f"Error selecting candidates: {e}", flush=True)
+        traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
 
 class KeywordRequest(BaseModel):
@@ -222,4 +246,6 @@ def create_questions(request: KeywordRequest, dep=Depends(authentication_require
         response = generate_questions(request.keywords)
         return JSONResponse(status_code=200, content={"response": response})
     except Exception as e:
+        print(f"Error creating questions: {e}", flush=True)
+        traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
