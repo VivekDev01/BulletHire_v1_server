@@ -11,6 +11,7 @@ import traceback
 import jwt
 import datetime
 from functools import wraps
+from bson import ObjectId
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -288,5 +289,30 @@ def create_questions(request: KeywordRequest, dep=Depends(authentication_require
         return JSONResponse(status_code=200, content={"response": response})
     except Exception as e:
         print(f"Error creating questions: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+class LikePostRequest(BaseModel):
+    post_id: str
+@app.post('/like_post')
+def like_post(request: LikePostRequest, dep=Depends(authentication_required)):
+    try:
+        post_id = request.post_id
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+
+        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        if not post:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+        
+        if user_data['_id'] in post['interactions']['likes']:
+            data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$pull": {"interactions.likes": user_data['_id']}})
+            return JSONResponse(status_code=200, content={"message": "Post unliked successfully"})
+
+        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$addToSet": {"interactions.likes": user_data['_id']}})
+        return JSONResponse(status_code=200, content={"message": "Post liked successfully"})
+    except Exception as e:
+        print(f"Error liking post: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
