@@ -250,6 +250,15 @@ def get_posts(dep=Depends(authentication_required)):
         for post in posts_cursor:
             post['_id'] = str(post['_id'])
             post['created_at'] = str(post['created_at'])
+            for comment in post['interactions']['comments']:
+                comment['user_id'] = str(comment['user_id'])
+                comment['created_at'] = str(comment['created_at'])
+                comment['_id'] = str(comment['_id'])
+                comment['likes'] = [str(like) for like in comment['likes']]
+                for reply in comment['replies']:
+                    reply['user_id'] = str(reply['user_id'])
+                    reply['created_at'] = str(reply['created_at'])
+                    reply['_id'] = str(reply['_id'])
             all_posts.append(post)
         if all_posts:
             return JSONResponse(status_code=200, content={"posts": all_posts})
@@ -314,5 +323,122 @@ def like_post(request: LikePostRequest, dep=Depends(authentication_required)):
         return JSONResponse(status_code=200, content={"message": "Post liked successfully"})
     except Exception as e:
         print(f"Error liking post: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+class CommentPostRequest(BaseModel):
+    post_id: str
+    comment: str
+@app.post('/comment_post')
+def comment_post(request: CommentPostRequest, dep=Depends(authentication_required)):
+    try:
+        post_id = request.post_id
+        comment = request.comment
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+
+        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        if not post:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+        comment_id = uuid.uuid4().hex
+        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$push": {"interactions.comments": {"_id": comment_id, "user_id": user_data['_id'], "username": user_data['username'],"comment": comment, "created_at": datetime.datetime.utcnow(), 'likes': [], 'replies': []}}})
+        return JSONResponse(status_code=200, content={"message": "Comment added successfully"})
+    except Exception as e:
+        print(f"Error commenting on post: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+
+class LikeCommentRequest(BaseModel):
+    post_id: str
+    comment_id: str
+@app.post('/like_comment')
+def like_comment(request: LikeCommentRequest, dep=Depends(authentication_required)):
+    try:
+        post_id = request.post_id
+        comment_id = request.comment_id
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+
+        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        if not post:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+        comment = next((c for c in post['interactions']['comments'] if c['_id'] == comment_id), None)
+        if not comment:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+
+        if user_data['_id'] in comment['likes']:
+            data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$pull": {"interactions.comments.$[c].likes": user_data['_id']}}, array_filters=[{"c._id": comment_id}])
+            return JSONResponse(status_code=200, content={"message": "Comment unliked successfully"})
+
+        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$addToSet": {"interactions.comments.$[c].likes": user_data['_id']}}, array_filters=[{"c._id": comment_id}])
+        return JSONResponse(status_code=200, content={"message": "Comment liked successfully"})
+    except Exception as e:
+        print(f"Error liking comment: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+class ReplyCommentRequest(BaseModel):
+    post_id: str
+    comment_id: str
+    reply: str
+@app.post('/reply_comment')
+def reply_comment(request: ReplyCommentRequest, dep=Depends(authentication_required)):
+    try:
+        post_id = request.post_id
+        comment_id = request.comment_id
+        reply = request.reply
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+
+        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        if not post:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+        comment = next((c for c in post['interactions']['comments'] if c['_id'] == comment_id), None)
+        if not comment:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+
+        reply_id = uuid.uuid4().hex
+        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$push": {"interactions.comments.$[c].replies": {"_id": reply_id, "user_id": user_data['_id'], "username": user_data['username'], "reply": reply, "created_at": datetime.datetime.utcnow()}}}, array_filters=[{"c._id": comment_id}])
+        return JSONResponse(status_code=200, content={"message": "Reply added successfully"})
+    except Exception as e:
+        print(f"Error replying to comment: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+
+class deleteCommentRequest(BaseModel):
+    post_id: str
+    comment_id: str
+@app.delete('/delete_comment')
+def delete_comment(request: deleteCommentRequest, dep=Depends(authentication_required)):
+    try:
+        post_id = request.post_id
+        comment_id = request.comment_id
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+
+        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        if not post:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+        comment = next((c for c in post['interactions']['comments'] if c['_id'] == comment_id), None)
+        if not comment:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+
+        if comment['user_id'] != user_data['_id']:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own comments")
+
+        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$pull": {"interactions.comments": {"_id": comment_id}}})
+        return JSONResponse(status_code=200, content={"message": "Comment deleted successfully"})
+    except Exception as e:
+        print(f"Error deleting comment: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
