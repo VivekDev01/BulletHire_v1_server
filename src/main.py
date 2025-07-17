@@ -75,6 +75,7 @@ def get_user(token_data):
             'password': user.get('password', ''),
             'profilePicture': user.get('profilePicture', ''),
             'resume': user.get('resume', ''),
+            'experience': user.get('experience', [])
         }
     return None
 
@@ -571,5 +572,24 @@ async def upload_resume(file: UploadFile = File(...), dep=Depends(authentication
         )
     except Exception as e:
         print(f"Error uploading resume: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+
+@app.post('/add_experience')
+async def add_experience(request: Request, dep=Depends(authentication_required)):
+    try:
+        data = await request.json()
+        experience = data.get('experience')
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+        
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$set': {'experience': experience}}
+        )
+    except Exception as e:
+        print(f"Error adding experience: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
