@@ -74,6 +74,7 @@ def get_user(token_data):
             'email': user.get('email', ''),
             'password': user.get('password', ''),
             'profilePicture': user.get('profilePicture', ''),
+            'resume': user.get('resume', ''),
         }
     return None
 
@@ -506,5 +507,69 @@ async def upload_profile(file: UploadFile = File(...), dep=Depends(authenticatio
         )
     except Exception as e:
         print(f"Error uploading profile picture: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.post('/upload_resume')
+async def upload_resume(file: UploadFile = File(...), dep=Depends(authentication_required)):
+    try:
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not authenticated"
+            )
+
+        if not file:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No file uploaded"
+            )
+
+        allowed_content_types = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+        allowed_extensions = ['pdf', 'doc', 'docx']
+        file_extension = file.filename.split('.')[-1].lower()
+
+        if file.content_type not in allowed_content_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file type. Only PDF and Word documents are allowed."
+            )
+
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file extension. Only .pdf, .doc, and .docx are allowed."
+            )
+
+        filename = file.filename 
+        if not filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File name cannot be empty"
+            )
+        relative_path = f"{user_data['_id']}/resumes/{filename}" 
+        absolute_path = os.path.join(uploads_directory, relative_path)
+        os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+
+        with open(absolute_path, "wb") as f:
+            f.write(await file.read())
+
+        media_url = f"/media/{relative_path}"
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$set': {'resume': media_url}}
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Resume uploaded successfully",
+                "success": True,
+                "url": media_url
+            }
+        )
+    except Exception as e:
+        print(f"Error uploading resume: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
