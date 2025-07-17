@@ -1,7 +1,7 @@
-from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from fastapi import Request, HTTPException, status, Depends
+from fastapi import FastAPI, File, Request, HTTPException, status, Depends, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uuid
 import pymongo
@@ -12,6 +12,7 @@ import jwt
 import datetime
 from functools import wraps
 from bson import ObjectId
+import os
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -42,6 +43,11 @@ data_db_credentials = config['data_db_credentials']
 client_data = pymongo.MongoClient(data_db_credentials['service'], data_db_credentials['port'], username=data_db_credentials['username'], password=data_db_credentials['password'])
 data_db = client_data[data_db_credentials['db']]
 
+payloads_directory = config['payloads_directory']
+uploads_directory = config['uploads_directory']
+
+app.mount("/media", StaticFiles(directory=uploads_directory), name="media")
+
 def authentication_required(request: Request):
     auth_header = request.headers.get('Authorization')
     if not auth_header or len(auth_header.split()) != 2:
@@ -67,6 +73,7 @@ def get_user(token_data):
             'username': user.get('username', ''),
             'email': user.get('email', ''),
             'password': user.get('password', ''),
+            'profilePicture': user.get('profilePicture', ''),
         }
     return None
 
@@ -442,3 +449,62 @@ def delete_comment(request: deleteCommentRequest, dep=Depends(authentication_req
         print(f"Error deleting comment: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
+
+@app.post('/upload_profile')
+async def upload_profile(file: UploadFile = File(...), dep=Depends(authentication_required)):
+    try:
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not authenticated"
+            )
+
+        if not file:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No file uploaded"
+            )
+
+        allowed_content_types = ['image/jpeg', 'image/png']
+        allowed_extensions = ['jpg', 'jpeg', 'png']
+        file_extension = file.filename.split('.')[-1].lower()
+
+        if file.content_type not in allowed_content_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file type. Only JPEG and PNG are allowed."
+            )
+
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file extension. Only .jpg, .jpeg, and .png are allowed."
+            )
+
+        filename = f"{uuid.uuid4().hex}.{file_extension}"
+        relative_path = f"{user_data['_id']}/profile_picture/{filename}" 
+        absolute_path = os.path.join(uploads_directory, relative_path)
+        os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+
+        with open(absolute_path, "wb") as f:
+            f.write(await file.read())
+
+        media_url = f"/media/{relative_path}"
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$set': {'profilePicture': media_url}}
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Profile picture uploaded successfully",
+                "success": True,
+                "url": media_url
+            }
+        )
+    except Exception as e:
+        print(f"Error uploading profile picture: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
