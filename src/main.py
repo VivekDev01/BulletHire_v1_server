@@ -73,9 +73,13 @@ def get_user(token_data):
             'username': user.get('username', ''),
             'email': user.get('email', ''),
             'password': user.get('password', ''),
+            'phone': user.get('phone', ''),
             'profilePicture': user.get('profilePicture', ''),
             'resume': user.get('resume', ''),
-            'experience': user.get('experience', [])
+            'experience': user.get('experience', []),
+            'skills': user.get('skills', []),
+            'courses': user.get('courses', []),
+            'certifications': user.get('certifications', [])
         }
     return None
 
@@ -589,7 +593,52 @@ async def add_experience(request: Request, dep=Depends(authentication_required))
             {'_id': ObjectId(user_data['_id'])},
             {'$set': {'experience': experience}}
         )
+        return JSONResponse(status_code=200, content={"success": True})
     except Exception as e:
         print(f"Error adding experience: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+
+@app.post('/add_skill')
+async def add_skill(request: Request, dep=Depends(authentication_required)):
+    try:
+        data = await request.json()
+        skill = data.get('skill')
+        if not skill:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Skill is empty")
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status=status.HTTP_401_UNAUTHORIZED, detail="user not authenticated")
+        
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$addToSet': {'skills': skill}}
+        )
+        return JSONResponse(status_code=200, content={"success": True})
+    except Exception as e:
+        print(f"Error adding a skill: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False})
+
+
+@app.post('/remove_skill')
+async def remove_skill(request: Request, dep=Depends(authentication_required)):
+    try:
+        data = await request.json()
+        skill = data.get('skill')
+        if not skill:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Skill is empty")
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status=status.HTTP_401_UNAUTHORIZED, detail="user not authenticated")
+        
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$pull': {'skills': skill}}
+        )
+        return JSONResponse(status_code=200, content={"success": True})
+    except Exception as e:
+        print(f"Error adding a skill: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False})
