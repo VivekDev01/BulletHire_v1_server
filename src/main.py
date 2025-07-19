@@ -642,3 +642,41 @@ async def remove_skill(request: Request, dep=Depends(authentication_required)):
         print(f"Error adding a skill: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False})
+
+@app.post('/add_course')
+async def add_course(request: Request, dep=Depends(authentication_required)):
+    try:
+        data = await request.json()
+        courses = data.get('courses')
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+        
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$set': {'courses': courses}}
+        )
+        return JSONResponse(status_code=200, content={"success": True})
+    except Exception as e:
+        print(f"Error adding courses: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.post('/add_certification')
+async def add_certification(request: Request, dep=Depends(authentication_required)):
+    try:
+        data = await request.json()
+        certifications = data.get('certifications')
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+        
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$set': {'certifications': certifications}}
+        )
+        return JSONResponse(status_code=200, content={"success": True})
+    except Exception as e:
+        print(f"Error adding certifications: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
