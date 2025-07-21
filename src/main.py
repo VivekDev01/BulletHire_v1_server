@@ -127,6 +127,7 @@ def login(login_request: LoginRequest):
         user = users_db['users'].find_one({'email': email})
         if user and check_password_hash(user['password'], password):
             data = {
+                '_id': user['_id'],
                 'username': user['username'],
                 'email': user['email'],
                 'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -680,3 +681,24 @@ async def add_certification(request: Request, dep=Depends(authentication_require
         print(f"Error adding certifications: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+
+@app.post('/edit_user_data')
+async def edit_user_data(request: Request, dep=Depends(authentication_required)):
+    try:
+        data = await request.json()
+        userData = data.get('userData', {})
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+        
+        users_db['users'].update_one(
+            {'_id': ObjectId(user_data['_id'])},
+            {'$set': userData}
+        )
+        return JSONResponse(status_code=200, content={"success": True})
+    except Exception as e:
+        print(f"Error updating user data: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
