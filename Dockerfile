@@ -63,9 +63,6 @@ RUN python3.11 -m pip install requests-oauthlib==2.0.0
 RUN python3.11 -m pip install rsa==4.9.1
 RUN python3.11 -m pip install scikit-learn==1.6.1
 RUN python3.11 -m pip install scipy==1.15.2
-RUN python3.11 -m pip install torch==2.1.2
-RUN python3.11 -m pip install torchvision==0.16.2
-RUN python3.11 -m pip install torchaudio==2.1.2
 RUN python3.11 -m pip install sentence-transformers==3.4.1
 RUN python3.11 -m pip install starlette==0.46.2
 RUN python3.11 -m pip install transformers==4.49.0
@@ -74,6 +71,9 @@ RUN python3.11 -m pip install urllib3==2.3.0
 RUN python3.11 -m pip install uvicorn==0.34.3
 RUN python3.11 -m pip install Werkzeug==3.1.3
 RUN python3.11 -m pip install pymongo==4.13.2
+RUN python3.11 -m pip install torch==2.1.2
+RUN python3.11 -m pip install torchvision==0.16.2
+RUN python3.11 -m pip install torchaudio==2.1.2
 
 COPY ./src ./src
 WORKDIR /src/

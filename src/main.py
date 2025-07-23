@@ -702,3 +702,11 @@ async def edit_user_data(request: Request, dep=Depends(authentication_required))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+
+@app.get("/api/fetchapplicants/{job_id}")
+async def fetch_applicants(job_id: str, dep=Depends(authentication_required)) -> List[Applicant]:
+    try:
+        candidates = generate_dummy_candidates(job_id)
+        return JSONResponse(status_code=200, content={"success": True, 'candidates': candidates})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
