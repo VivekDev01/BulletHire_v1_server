@@ -286,30 +286,6 @@ def get_posts(dep=Depends(authentication_required)):
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
 
-@app.get('/get_jobs')
-def get_jobs(dep=Depends(authentication_required)):
-    try:
-        all_jobs = []
-        jobs_cursor = data_db['job_descriptions'].find({}).sort("created_at", -1)
-        for job in jobs_cursor:
-            job['_id'] = str(job['_id'])
-            job['created_at'] = str(job['created_at'])
-            user = users_db['users'].find_one({"_id": ObjectId(job['user_id'])})
-            job['user'] = {
-                "_id": str(user['_id']),
-                "username": user.get('username', ''),
-                "email": user.get('email', ''),
-            } if user else {}
-            all_jobs.append(job)
-        if all_jobs:
-            return JSONResponse(status_code=200, content={"jobs": all_jobs})
-        else:
-            return JSONResponse(status_code=404, content={"message": "No jobs found"})
-    except Exception as e:
-        print(f"Error fetching jobs: {e}", flush=True)
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content=str(e))
-
 @app.post("/post_on_linkedin")
 def post_on_linkedin(jd:str, dep=Depends(authentication_required)):
     try:
@@ -834,3 +810,26 @@ async def fetch_applicants(job_id: str, dep=Depends(authentication_required)):
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+@app.get('/get_jobs')
+def get_jobs(dep=Depends(authentication_required)):
+    try:
+        all_jobs = []
+        jobs_cursor = data_db['job_descriptions'].find({"posted": True}).sort("created_at", -1)
+        for job in jobs_cursor:
+            job['_id'] = str(job['_id'])
+            job['created_at'] = str(job['created_at'])
+            user = users_db['users'].find_one({"_id": ObjectId(job['user_id'])})
+            job['user'] = {
+                "_id": str(user['_id']),
+                "username": user.get('username', ''),
+                "email": user.get('email', ''),
+            } if user else {}
+            all_jobs.append(job)
+        if all_jobs:
+            return JSONResponse(status_code=200, content={"jobs": all_jobs})
+        else:
+            return JSONResponse(status_code=404, content={"message": "No jobs found"})
+    except Exception as e:
+        print(f"Error fetching jobs: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
