@@ -130,7 +130,7 @@ def login(login_request: LoginRequest):
         user = users_db['users'].find_one({'email': email})
         if user and check_password_hash(user['password'], password):
             data = {
-                '_id': user['_id'],
+                '_id': str(user['_id']),
                 'username': user['username'],
                 'email': user['email'],
                 'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -283,6 +283,30 @@ def get_posts(dep=Depends(authentication_required)):
             return JSONResponse(status_code=404, content={"message": "No posts found"})
     except Exception as e:
         print(f"Error fetching posts: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=str(e))
+
+@app.get('/get_jobs')
+def get_jobs(dep=Depends(authentication_required)):
+    try:
+        all_jobs = []
+        jobs_cursor = data_db['job_descriptions'].find({}).sort("created_at", -1)
+        for job in jobs_cursor:
+            job['_id'] = str(job['_id'])
+            job['created_at'] = str(job['created_at'])
+            user = users_db['users'].find_one({"_id": ObjectId(job['user_id'])})
+            job['user'] = {
+                "_id": str(user['_id']),
+                "username": user.get('username', ''),
+                "email": user.get('email', ''),
+            } if user else {}
+            all_jobs.append(job)
+        if all_jobs:
+            return JSONResponse(status_code=200, content={"jobs": all_jobs})
+        else:
+            return JSONResponse(status_code=404, content={"message": "No jobs found"})
+    except Exception as e:
+        print(f"Error fetching jobs: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
 
