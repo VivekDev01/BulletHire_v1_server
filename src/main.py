@@ -16,10 +16,16 @@ import os
 import random
 from typing import Optional
 
+# oAuth
+from authlib.integrations.starlette_client import OAuth
+from starlette.config import Config
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import RedirectResponse
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+# HR Agent
 from hr_agent.create_jd import jd_create
 from hr_agent.linkedin_post import post_jd_on_linkedin
 from hr_agent.resume_selection import select_send_email
@@ -38,6 +44,23 @@ app.add_middleware(
 )
 app.include_router(linkedin_router)
 
+# oAuth
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+SECRET_KEY = os.getenv("SECRET_KEY")
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY"))
+
+oAuth_config = Config(environ=os.environ)
+oauth = OAuth(oAuth_config)
+
+oauth.register(
+    name='google',
+    client_id=os.getenv("CLIENT_ID"),
+    client_secret=os.getenv("CLIENT_SECRET"),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'},
+)
+
 users_db_creds = config['users_db_credentials']
 client_web = pymongo.MongoClient(users_db_creds['service'], users_db_creds['port'], username=users_db_creds['username'], password=users_db_creds['password'])
 users_db = client_web[users_db_creds['db']]
@@ -51,13 +74,60 @@ uploads_directory = config['uploads_directory']
 
 app.mount("/media", StaticFiles(directory=uploads_directory), name="media")
 
+# OAuth login route
+@app.get('/auth/login')
+async def auth_login(request: Request):
+    redirect_uri = request.url_for('auth_callback')
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+# OAuth callback route
+@app.get('/auth/callback')
+async def auth_callback(request: Request):
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        user_info = token.get('userinfo')
+
+        if not user_info:
+            user_info = await oauth.google.parse_id_token(request, token)
+        
+        email = user_info['email']
+        username = user_info.get('name', email.split('@')[0])
+
+        user = users_db['users'].find_one({'email': email})
+        if not user:
+            users_db['users'].insert_one({
+                'username': username,
+                'email': email,
+                'password': None,
+                'oauth_provider': 'google'
+            })
+
+        payload = {
+            '_id': str(user['_id']) if user else '',
+            'email': email,
+            'username': username,
+            'date': datetime.datetime.utcnow().isoformat()
+        }
+        jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+        frontend_redirect = f"{config['frontend_url']}/auth/complete"
+        return RedirectResponse(f"{frontend_redirect}?token={jwt_token}")
+        
+    except Exception as e:
+        print(f"OAuth callback error: {e}")
+        traceback.print_exc() 
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OAuth callback failed")
+
 def authentication_required(request: Request):
     auth_header = request.headers.get('Authorization')
     if not auth_header or len(auth_header.split()) != 2:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Bad authorization header')
     bearer_token = auth_header.split()[1]
     try:
-        data = jwt.decode(bearer_token, config['secret_key'], algorithms=["HS256"])
+        data = jwt.decode(bearer_token, SECRET_KEY, algorithms=["HS256"])
+        user = users_db['users'].find_one({'email': data.get('email')})
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='User not found')
     except Exception as e:
         print('Error: ', e, flush=True)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
@@ -135,7 +205,7 @@ def login(login_request: LoginRequest):
                 'email': user['email'],
                 'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             }
-            token = jwt.encode(data, config['secret_key'], algorithm="HS256")
+            token = jwt.encode(data, SECRET_KEY, algorithm="HS256")
             if isinstance(token, bytes):
                 token = token.decode('utf-8')
             users_db['users'].update_one({'email': email}, {'$set': {'token': token}})

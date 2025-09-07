@@ -12,3 +12,4 @@ src/hr_agent/requirements.txt
 src/hr_agent/.env
 src/hr_agent/credentials.json
 src/hr_agent/token.json
+.env
