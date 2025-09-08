@@ -1,5 +1,5 @@
 from fastapi.responses import JSONResponse
-from fastapi import FastAPI, File, Request, HTTPException, status, Depends, UploadFile
+from fastapi import FastAPI, File, Request, HTTPException, status, Depends, UploadFile, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -174,12 +174,21 @@ def home():
 def check_auth2(dep=Depends(authentication_required)):
     return {'message': 'Hello, FastAPI!', 'user': dep}
 
+def send_verification_email(email: str, code: str):
+    res = requests.post(f"{mail_service_url}/api/send_email", json={
+        'to_email': email,
+        'subject': 'Email Verification for BulletHire',
+        'body': f"Your verification code is {code}"
+    })
+    if res.status_code != 200:
+        print(f"Failed to send email: {res.text}", flush=True)
+
 class SignupRequest(BaseModel):
     username: str
     email: str
     password: str
 @app.post('/api/signup')
-def signup(signup_request: SignupRequest):
+def signup(signup_request: SignupRequest, background_tasks: BackgroundTasks):
     try:
         payload = signup_request.dict()
         username = payload.get('username', '')
@@ -192,11 +201,7 @@ def signup(signup_request: SignupRequest):
         expiration_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
         verification_code = str(generate_verification_code())
 
-        res = requests.post(f"{mail_service_url}/api/send_email", json={
-            'to_email': email,
-            'subject': 'Email Verification for BulletHire',
-            'body': f"Your verification code is {verification_code}"
-        })
+        background_tasks.add_task(send_verification_email, email, verification_code)
 
         # r.setex(f"{email}_verification_code", 600, verification_code)
         r.set(f"{email}_verification_code", verification_code, ex=600)
