@@ -26,6 +26,11 @@ services:
       - 9000:9000
     env_file:
       - .env
+  redis_service:
+    image: redis:latest
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
   mongo_service_users:
     image: mongo:latest
     restart: unless-stopped

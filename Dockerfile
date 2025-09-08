@@ -75,6 +75,7 @@ RUN python3.11 -m pip install torch==2.1.2
 RUN python3.11 -m pip install torchvision==0.16.2
 RUN python3.11 -m pip install torchaudio==2.1.2
 RUN python3.11 -m pip install authlib==1.6.3
+RUN python3.11 -m pip install redis==6.4.0
 
 COPY ./src ./src
 WORKDIR /src/

@@ -15,6 +15,9 @@ from bson import ObjectId
 import os
 import random
 from typing import Optional
+import redis
+import requests
+
 
 # oAuth
 from authlib.integrations.starlette_client import OAuth
@@ -33,6 +36,10 @@ from hr_agent.question_generation import generate_questions
 from hr_agent.linkedin_auth import router as linkedin_router
 
 config = yaml.load(open("/src/config.yaml"), Loader=yaml.FullLoader)
+
+r = redis.Redis(host=config['redis']['host'], port=config['redis']['port'], db=0, decode_responses=True)
+
+mail_service_url = config['mail_service_url']
 
 app = FastAPI()
 app.add_middleware(
@@ -64,6 +71,9 @@ oauth.register(
 users_db_creds = config['users_db_credentials']
 client_web = pymongo.MongoClient(users_db_creds['service'], users_db_creds['port'], username=users_db_creds['username'], password=users_db_creds['password'])
 users_db = client_web[users_db_creds['db']]
+
+# Create TTL index on 'expires_at' field to auto-delete unverified users after 10 minutes
+users_db['users'].create_index([('expires_at', pymongo.ASCENDING)], expireAfterSeconds=0)
 
 data_db_credentials = config['data_db_credentials']
 client_data = pymongo.MongoClient(data_db_credentials['service'], data_db_credentials['port'], username=data_db_credentials['username'], password=data_db_credentials['password'])
@@ -178,14 +188,49 @@ def signup(signup_request: SignupRequest):
         if users_db['users'].find_one({'email': email}):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Email already exists')
         hashed_password = generate_password_hash(password)
+
+        expiration_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+        verification_code = str(generate_verification_code())
+
+        res = requests.post(f"{mail_service_url}/api/send_email", json={
+            'to_email': email,
+            'subject': 'Email Verification for BulletHire',
+            'body': f"Your verification code is {verification_code}"
+        })
+
+        # r.setex(f"{email}_verification_code", 600, verification_code)
+        r.set(f"{email}_verification_code", verification_code, ex=600)
+
         users_db['users'].insert_one({
             'username': username,
             'email': email,
-            'password': hashed_password
+            'password': hashed_password,
+            'is_verified': False,
+            'expires_at': expiration_time
         })
         return {'message': 'User created successfully', 'status': True}, 201
     except Exception as e:
         print(f"Error during signup: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Internal server error')
+
+class VerificationRequest(BaseModel):
+    email: str
+    code: str
+@app.post('/api/verify-email')
+def verify_email(verification_request: VerificationRequest):
+    try:
+        email = verification_request.email
+        code = verification_request.code
+        user = users_db['users'].find_one({'email': email})
+        if user and r.get(f"{email}_verification_code") == code:
+            users_db['users'].update_one({'email': email}, {'$set': {'is_verified': True}, '$unset': {'expires_at': ''}})
+            r.delete(f"{email}_verification_code")
+            return {'message': 'Email verified successfully', 'status': True}
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid verification code')
+    except Exception as e:
+        print(f"Error during verification: {e}", flush=True)
         traceback.print_exc()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Internal server error')
 
