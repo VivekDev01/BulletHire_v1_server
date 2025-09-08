@@ -15,6 +15,17 @@ services:
     depends_on:
       - mongo_service_users
       - mongo_service_data
+  mail_service:
+    image: bullet_mailer_v1
+    build:
+      context: ./mailer
+      dockerfile: Dockerfile
+    # command: uwsgi --socket 0.0.0.0:9000 --module mail:app --http-timeout 600  --processes 4 --threads 8
+    command: python mail.py
+    ports:
+      - 9000:9000
+    env_file:
+      - .env
   mongo_service_users:
     image: mongo:latest
     restart: unless-stopped

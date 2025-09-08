@@ -13,3 +13,8 @@ src/hr_agent/.env
 src/hr_agent/credentials.json
 src/hr_agent/token.json
 .env
+mailer
+mailer/
+mailer/Dockerfile
+mailer/mail.py
+.gitignore
