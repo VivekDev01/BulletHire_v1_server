@@ -12,6 +12,7 @@ services:
       - D:\Development 2.O\version_1\server\src\hr_agent\.env:/src/.env
       - D:\Development 2.O\version_1\server\src\hr_agent\credentials.json:/src/credentials.json
       - D:\Development 2.O\version_1\server\src\hr_agent\token.json:/src/token.json
+      - D:\Development 2.O\version_1\server\templates:/templates
     depends_on:
       - mongo_service_users
       - mongo_service_data

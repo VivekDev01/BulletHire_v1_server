@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your Email - BulletHire</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, Arial, sans-serif;
+            line-height: 1.6;
+            color: #2d3748;
+            background-color: #f7fafc;
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        
+        /* Main container - using table for email compatibility */
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 2px solid #000000;
+        }
+        
+        /* Header */
+        .header {
+            background-color: #667eea;
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 40px 30px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .logo-table {
+            margin: 0 auto;
+            border-collapse: collapse;
+        }
+        
+        .logo-icon {
+            width: 60px;
+            height: 60px;
+            background-color: rgba(255, 255, 255, 0.2);
+            /* border-radius: 15px; */
+            text-align: center;
+            vertical-align: middle;
+            color: white;
+            font-weight: 700;
+            font-size: 24px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            line-height: 56px;
+        }
+        
+        .logo-text {
+            color: white;
+            font-size: 32px;
+            font-weight: 700;
+            vertical-align: middle;
+            padding-left: 12px;
+        }
+        
+        .logo-accent {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .header-title {
+            color: white;
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0;
+        }
+        
+        .header-subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 16px;
+            margin: 8px 0 0 0;
+        }
+        
+        /* Content */
+        .content {
+            padding: 50px 40px;
+        }
+        
+        .greeting {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 16px;
+        }
+        
+        .message {
+            font-size: 16px;
+            color: #4a5568;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        
+        .verification-section {
+            background-color: rgba(102, 126, 234, 0.05);
+            border: 2px solid rgba(102, 126, 234, 0.1);
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        .verification-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .verification-code {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2d3748;
+            background-color: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            display: inline-block;
+            margin-bottom: 12px;
+            border: 1px solid rgba(102, 126, 234, 0.1);
+            letter-spacing: 4px;
+        }
+        
+        .verification-note {
+            font-size: 14px;
+            color: #718096;
+        }
+        
+        .instructions {
+            background-color: rgba(72, 187, 120, 0.05);
+            border-left: 4px solid #48bb78;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 30px 0;
+        }
+        
+        .instructions-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+        
+        .instructions-text {
+            font-size: 14px;
+            color: #4a5568;
+            line-height: 1.5;
+        }
+        
+        /* Footer */
+        .footer {
+            background-color: #667eea;
+            background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px;
+            text-align: center;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        
+        .footer-message {
+            font-size: 16px;
+            color: #ffffff;
+            margin-bottom: 20px;
+        }
+        
+        .team-signature {
+            font-size: 18px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+        
+        .company-info {
+            font-size: 14px;
+            color: #ffffff;
+            margin-bottom: 25px;
+        }
+        
+        .social-links {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        
+        .social-link {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            color: white;
+            text-decoration: none;
+            font-size: 18px;
+            line-height: 40px;
+            margin: 0 8px;
+            text-align: center;
+        }
+        
+        .footer-legal {
+            font-size: 12px;
+            color: #ffffff;
+            line-height: 1.5;
+        }
+        
+        .footer-legal a {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+        }
+        
+        /* Mobile responsive - using media queries that work in most email clients */
+        @media screen and (max-width: 600px) {
+            body {
+                padding: 20px 10px !important;
+            }
+            
+            .email-container {
+                border-radius: 16px !important;
+            }
+            
+            .header,
+            .content,
+            .footer {
+                padding: 30px 24px !important;
+            }
+            
+            .logo-table {
+                width: 100% !important;
+            }
+            
+            .logo-icon {
+                width: 50px !important;
+                height: 50px !important;
+                font-size: 20px !important;
+                line-height: 46px !important;
+                display: block !important;
+                margin: 0 auto 12px auto !important;
+            }
+            
+            .logo-text {
+                font-size: 28px !important;
+                display: block !important;
+                text-align: center !important;
+                padding-left: 0 !important;
+            }
+            
+            .header-title {
+                font-size: 24px !important;
+            }
+            
+            .verification-section {
+                padding: 24px 16px !important;
+            }
+            
+            .verification-code {
+                font-size: 28px !important;
+                padding: 12px 20px !important;
+                letter-spacing: 2px !important;
+            }
+            
+            .social-link {
+                width: 36px !important;
+                height: 36px !important;
+                font-size: 16px !important;
+                line-height: 36px !important;
+                margin: 0 6px !important;
+            }
+        }
+        
+        /* Fallbacks for Outlook */
+    </style>
+    <!--[if mso]>
+    <style type="text/css">
+        .logo-table {
+            width: auto !important;
+        }
+        .logo-icon {
+            width: 60px !important;
+            height: 60px !important;
+        }
+    </style>
+    <![endif]-->
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <table class="logo-table" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td class="logo-icon">BH</td>
+                        <td class="logo-text">
+                            Bullet<span class="logo-accent">Hire</span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            <h1 class="header-title">Verify Your Email</h1>
+            <p class="header-subtitle">We're excited to have you on board!</p>
+        </div>
+        
+        <!-- Content -->
+        <div class="content">
+            <div class="greeting">Hi {{ username }},</div>
+            
+            <p class="message">
+                Welcome to BulletHire! Thank you for creating your account. To complete your registration and start exploring amazing opportunities, please verify your email address first.
+            </p>
+            
+            <div class="verification-section">
+                <div class="verification-label">Your Verification Code</div>
+                <div class="verification-code">{{ code }}</div>
+                <div class="verification-note">This code expires in 10 minutes</div>
+            </div>
+            
+            <!-- Uncomment if needed
+            <div class="instructions">
+                <div class="instructions-title">
+                    📋 How to verify:
+                </div>
+                <div class="instructions-text">
+                    1. Go back to the BulletHire verification page<br>
+                    2. Enter the 6-digit code above<br>
+                    3. Click "Verify Email" to complete your registration
+                </div>
+            </div>
+            
+            <p class="message">
+                If you didn't create an account with BulletHire, you can safely ignore this email. Your email address will not be added to our system.
+            </p>
+            -->
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p class="footer-message">
+                Need help? We're here for you!
+            </p>
+            
+            <div class="team-signature">The BulletHire Team</div>
+            <!-- <div class="company-info">Bengaluru, Karnataka, India</div> -->
+            
+            <!-- Uncomment if needed
+            <div class="social-links">
+                <a href="#" class="social-link">📧</a>
+                <a href="#" class="social-link">💼</a>
+                <a href="#" class="social-link">🐦</a>
+                <a href="#" class="social-link">📘</a>
+            </div>
+            -->
+            
+            <div class="footer-legal">
+                © {{ year }} BulletHire. All rights reserved.<br>
+                <!-- <a href="#">Privacy Policy</a> | <a href="#">Terms of Service</a> | <a href="#">Unsubscribe</a> -->
+            </div>
+        </div>
+    </div>
+</body>
+</html>

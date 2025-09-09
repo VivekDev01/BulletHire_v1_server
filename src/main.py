@@ -17,6 +17,7 @@ import random
 from typing import Optional
 import redis
 import requests
+from jinja2 import Environment, FileSystemLoader
 
 
 # oAuth
@@ -40,6 +41,8 @@ config = yaml.load(open("/src/config.yaml"), Loader=yaml.FullLoader)
 r = redis.Redis(host=config['redis']['host'], port=config['redis']['port'], db=0, decode_responses=True)
 
 mail_service_url = config['mail_service_url']
+templates_dir = config['templates']['dir']
+
 
 app = FastAPI()
 app.add_middleware(
@@ -174,11 +177,16 @@ def home():
 def check_auth2(dep=Depends(authentication_required)):
     return {'message': 'Hello, FastAPI!', 'user': dep}
 
-def send_verification_email(email: str, code: str):
+def send_verification_email(email: str, code: str, username: str):
+    template_file = config['templates']['verification_mail_template']
+    env = Environment(loader=FileSystemLoader(templates_dir))
+    template = env.get_template(template_file)
+    html_content = template.render(username=username, code=code, year=datetime.datetime.now().year)
+    
     res = requests.post(f"{mail_service_url}/api/send_email", json={
         'to_email': email,
         'subject': 'Email Verification for BulletHire',
-        'body': f"Your verification code is {code}"
+        'body': html_content
     })
     if res.status_code != 200:
         print(f"Failed to send email: {res.text}", flush=True)
@@ -201,7 +209,7 @@ def signup(signup_request: SignupRequest, background_tasks: BackgroundTasks):
         expiration_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
         verification_code = str(generate_verification_code())
 
-        background_tasks.add_task(send_verification_email, email, verification_code)
+        background_tasks.add_task(send_verification_email, email, verification_code, username)
 
         # r.setex(f"{email}_verification_code", 600, verification_code)
         r.set(f"{email}_verification_code", verification_code, ex=600)
