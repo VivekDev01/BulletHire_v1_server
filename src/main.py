@@ -961,3 +961,28 @@ def get_jobs(dep=Depends(authentication_required)):
         print(f"Error fetching jobs: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
+
+class OTPRequest(BaseModel):
+    phone: str
+
+@app.post('/send_otp')
+async def send_otp(request: OTPRequest, dep=Depends(authentication_required)):
+    try:
+        user_data = get_user(dep)
+        if not user_data:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+
+        phone = int(request.phone)
+        if not (1000000000 <= phone <= 9999999999):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+
+        otp = str(random.randint(100000, 999999))
+        print(f"Sending OTP {otp} to {phone}", flush=True)
+
+        r.set(f"{phone}_verification_code", otp, ex=600)
+
+        return JSONResponse(status_code=200, content={"message": "OTP sent successfully"})
+    except Exception as e:
+        print(f"Error sending OTP: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
