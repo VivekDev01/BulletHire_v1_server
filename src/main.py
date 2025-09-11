@@ -30,11 +30,11 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # HR Agent
-from hr_agent.create_jd import jd_create
-from hr_agent.linkedin_post import post_jd_on_linkedin
-from hr_agent.resume_selection import select_send_email
-from hr_agent.question_generation import generate_questions
-from hr_agent.linkedin_auth import router as linkedin_router
+# from hr_agent.create_jd import jd_create
+# from hr_agent.linkedin_post import post_jd_on_linkedin
+# from hr_agent.resume_selection import select_send_email
+# from hr_agent.question_generation import generate_questions
+# from hr_agent.linkedin_auth import router as linkedin_router
 
 config = yaml.load(open("/src/config.yaml"), Loader=yaml.FullLoader)
 
@@ -52,7 +52,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(linkedin_router)
+# app.include_router(linkedin_router)
 
 # oAuth
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -314,7 +314,8 @@ class jd_data(BaseModel):
 def create_job_description(data: jd_data, dep=Depends(authentication_required)):
     jd_id = uuid.uuid4().hex
     data.link = f"/job/{jd_id}/apply"
-    jd = jd_create(data)
+    # jd = jd_create(data)
+    jd = ''
     user_data = get_user(dep)
     if not user_data:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
@@ -414,37 +415,37 @@ def get_posts(dep=Depends(authentication_required)):
         traceback.print_exc()
         return JSONResponse(status_code=500, content=str(e))
 
-@app.post("/post_on_linkedin")
-def post_on_linkedin(jd:str, dep=Depends(authentication_required)):
-    try:
-        response = post_jd_on_linkedin(jd)
-        return JSONResponse(status_code=200, content={"response": response})
-    except Exception as e:
-        print(f"Error posting on LinkedIn: {e}", flush=True)
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content=str(e))
+# @app.post("/post_on_linkedin")
+# def post_on_linkedin(jd:str, dep=Depends(authentication_required)):
+#     try:
+#         response = post_jd_on_linkedin(jd)
+#         return JSONResponse(status_code=200, content={"response": response})
+#     except Exception as e:
+#         print(f"Error posting on LinkedIn: {e}", flush=True)
+#         traceback.print_exc()
+#         return JSONResponse(status_code=500, content=str(e))
 
-@app.post("/select_candidates")
-def select_candidates(jd:str, dep=Depends(authentication_required)):
-    try:
-        response = select_send_email(jd)
-        return JSONResponse(status_code=200, content={'response': response})
-    except Exception as e:
-        print(f"Error selecting candidates: {e}", flush=True)
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content=str(e))
+# @app.post("/select_candidates")
+# def select_candidates(jd:str, dep=Depends(authentication_required)):
+#     try:
+#         response = select_send_email(jd)
+#         return JSONResponse(status_code=200, content={'response': response})
+#     except Exception as e:
+#         print(f"Error selecting candidates: {e}", flush=True)
+#         traceback.print_exc()
+#         return JSONResponse(status_code=500, content=str(e))
 
-class KeywordRequest(BaseModel):
-    keywords: str
-@app.post("/create_questions")
-def create_questions(request: KeywordRequest, dep=Depends(authentication_required)):
-    try:
-        response = generate_questions(request.keywords)
-        return JSONResponse(status_code=200, content={"response": response})
-    except Exception as e:
-        print(f"Error creating questions: {e}", flush=True)
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content=str(e))
+# class KeywordRequest(BaseModel):
+#     keywords: str
+# @app.post("/create_questions")
+# def create_questions(request: KeywordRequest, dep=Depends(authentication_required)):
+#     try:
+#         response = generate_questions(request.keywords)
+#         return JSONResponse(status_code=200, content={"response": response})
+#     except Exception as e:
+#         print(f"Error creating questions: {e}", flush=True)
+#         traceback.print_exc()
+#         return JSONResponse(status_code=500, content=str(e))
 
 class LikePostRequest(BaseModel):
     post_id: str
@@ -984,5 +985,23 @@ async def send_otp(request: OTPRequest, dep=Depends(authentication_required)):
         return JSONResponse(status_code=200, content={"message": "OTP sent successfully"})
     except Exception as e:
         print(f"Error sending OTP: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+class applyRequest(BaseModel):
+    jobId: str
+@app.post('/api/apply')
+def apply(request: applyRequest, dep=Depends(authentication_required)):
+    try:
+        user_id = dep.get('_id')
+        email = dep.get('email')
+        job_id = request.jobId
+        job = data_db['job_descriptions'].find_one({"_id": ObjectId(job_id)})
+        if email in job['applicants']:
+            return JSONResponse(status_code=400, content={"message": "You have already applied for this job"})
+        data_db['job_descriptions'].update_one({"_id": ObjectId(job_id)}, {"$push": {"applicants": email}})
+        return JSONResponse(status_code=200, content={"message": "Applied successfully"})
+    except Exception as e:
+        print(f"Error applying for job: {e}", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
