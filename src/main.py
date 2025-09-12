@@ -996,10 +996,15 @@ def apply(request: applyRequest, dep=Depends(authentication_required)):
         user_id = dep.get('_id')
         email = dep.get('email')
         job_id = request.jobId
-        job = data_db['job_descriptions'].find_one({"_id": ObjectId(job_id)})
+        print(job_id, flush=True)
+        job = data_db['job_descriptions'].find_one({"_id": job_id})
+        if not job:
+            return JSONResponse(status_code=404, content={"message": "Job not found"})
+        if not 'applicants' in job:
+            job['applicants'] = []
         if email in job['applicants']:
             return JSONResponse(status_code=400, content={"message": "You have already applied for this job"})
-        data_db['job_descriptions'].update_one({"_id": ObjectId(job_id)}, {"$push": {"applicants": email}})
+        data_db['job_descriptions'].update_one({"_id": job_id}, {"$push": {"applicants": email}})
         return JSONResponse(status_code=200, content={"message": "Applied successfully"})
     except Exception as e:
         print(f"Error applying for job: {e}", flush=True)
