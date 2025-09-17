@@ -1,32 +1,32 @@
 services:
   web:
-    image: bullet_hire_v1
+    image: vivekdev01/drimsort-server:0.1
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - 8000:8000
     env_file:
       - .env
     volumes:
-      - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
+      # - D:\Development 2.O\version_1\server\config.yaml:/src/config.yaml
       - D:\Development 2.O\version_1\data:/data
-      - D:\Development 2.O\version_1\server\src\hr_agent\.env:/src/.env
-      - D:\Development 2.O\version_1\server\src\hr_agent\credentials.json:/src/credentials.json
-      - D:\Development 2.O\version_1\server\src\hr_agent\token.json:/src/token.json
-      - D:\Development 2.O\version_1\server\templates:/templates
+      # - D:\Development 2.O\version_1\server\src\hr_agent\.env:/src/.env
+      # - D:\Development 2.O\version_1\server\src\hr_agent\credentials.json:/src/credentials.json
+      # - D:\Development 2.O\version_1\server\src\hr_agent\token.json:/src/token.json
+      # - D:\Development 2.O\version_1\server\templates:/templates
     depends_on:
       - mongo_service_users
       - mongo_service_data
-  mail_service:
-    image: bullet_mailer_v1
-    build:
-      context: ./mailer
-      dockerfile: Dockerfile
-    # command: uwsgi --socket 0.0.0.0:9000 --module mail:app --http-timeout 600  --processes 4 --threads 8
-    command: python mail.py
-    ports:
-      - 9000:9000
-    env_file:
-      - .env
+  # mail_service:
+  #   image: bullet_mailer_v1
+  #   build:
+  #     context: ./mailer
+  #     dockerfile: Dockerfile
+  #   # command: uwsgi --socket 0.0.0.0:9000 --module mail:app --http-timeout 600  --processes 4 --threads 8
+  #   command: python mail.py
+  #   ports:
+  #     - 9000:9000
+  #   env_file:
+  #     - .env
   redis_service:
     image: redis:latest
     restart: unless-stopped
@@ -66,7 +66,7 @@ services:
       - 127.0.0.1:5002:27017
     
 
-# docker-compose -p bullet_hire_v1 down;
-# docker build -t bullet_hire_v1 .;
-# docker-compose -p bullet_hire_v1 up -d;
-# docker logs -f bullet_hire_v1-web-1;
+# docker-compose -p drimsort down;
+# docker build -t vivekdev01/drimsort-server:0.1 .;
+# docker-compose -p drimsort up -d;
+# docker logs -f drimsort-web-1;

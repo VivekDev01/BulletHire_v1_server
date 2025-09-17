@@ -36,18 +36,14 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # from hr_agent.question_generation import generate_questions
 # from hr_agent.linkedin_auth import router as linkedin_router
 
-config = yaml.load(open("/src/config.yaml"), Loader=yaml.FullLoader)
+config = yaml.load(open("config.yaml"), Loader=yaml.FullLoader)
 
 r = redis.Redis(host=config['redis']['host'], port=config['redis']['port'], db=0, decode_responses=True)
-
-mail_service_url = config['mail_service_url']
-templates_dir = config['templates']['dir']
-
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[config['frontend_url']],  # Frontend origin
+    allow_origins=[os.getenv("FRONTEND_URL")],  # Frontend origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -123,7 +119,7 @@ async def auth_callback(request: Request):
         }
         jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
-        frontend_redirect = f"{config['frontend_url']}/auth/complete"
+        frontend_redirect = f"{os.getenv('FRONTEND_URL')}/auth/complete"
         return RedirectResponse(f"{frontend_redirect}?token={jwt_token}")
         
     except Exception as e:
@@ -178,12 +174,12 @@ def check_auth2(dep=Depends(authentication_required)):
     return {'message': 'Hello, FastAPI!', 'user': dep}
 
 def send_verification_email(email: str, code: str, username: str):
-    template_file = config['templates']['verification_mail_template']
-    env = Environment(loader=FileSystemLoader(templates_dir))
+    template_file = "verification_mail_template.html.jinja"
+    env = Environment(loader=FileSystemLoader('templates'))
     template = env.get_template(template_file)
     html_content = template.render(username=username, code=code, year=datetime.datetime.now().year)
-    
-    res = requests.post(f"{mail_service_url}/api/send_email", json={
+
+    res = requests.post(f"{os.getenv('mail_service_url')}/api/send_email", json={
         'to_email': email,
         'subject': 'Email Verification for BulletHire',
         'body': html_content
