@@ -76,6 +76,7 @@ RUN python3.11 -m pip install pymongo==4.13.2
 # RUN python3.11 -m pip install torchaudio==2.1.2
 RUN python3.11 -m pip install authlib==1.6.3
 RUN python3.11 -m pip install redis==6.4.0
+RUN python3.11 -m pip install boto3==1.28.36
 
 COPY ./src ./src
 WORKDIR /src/

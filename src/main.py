@@ -18,6 +18,7 @@ from typing import Optional
 import redis
 import requests
 from jinja2 import Environment, FileSystemLoader
+import boto3
 
 
 # oAuth
@@ -38,7 +39,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 config = yaml.load(open("config.yaml"), Loader=yaml.FullLoader)
 
-r = redis.Redis(host=config['redis']['host'], port=config['redis']['port'], db=0, decode_responses=True)
+r = redis.Redis(host=os.getenv('redis_host'), port=os.getenv('redis_port'), db=0, decode_responses=True)
 
 app = FastAPI()
 app.add_middleware(
@@ -48,7 +49,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# app.include_router(linkedin_router)
 
 # oAuth
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -67,21 +67,35 @@ oauth.register(
     client_kwargs={'scope': 'openid email profile'},
 )
 
-users_db_creds = config['users_db_credentials']
-client_web = pymongo.MongoClient(users_db_creds['service'], users_db_creds['port'], username=users_db_creds['username'], password=users_db_creds['password'])
-users_db = client_web[users_db_creds['db']]
+# DynamoDB
+dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_REGION'), aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'), aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'))
+users_table = dynamodb.Table('Users')
+job_descriptions_table = dynamodb.Table('JobDescriptions')
+posts_table = dynamodb.Table('Posts')
+
+# S3 Bucket
+S3 = boto3.client('s3', region_name=os.getenv('AWS_REGION'), aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'), aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'))
 
 # Create TTL index on 'expires_at' field to auto-delete unverified users after 10 minutes
-users_db['users'].create_index([('expires_at', pymongo.ASCENDING)], expireAfterSeconds=0)
+# users_table.create_global_secondary_index(
+#     IndexName='expires_at_index',
+#     KeySchema=[
+#         {
+#             'AttributeName': 'expires_at',
+#             'KeyType': 'HASH'
+#         }
+#     ],
+#     Projection={
+#         'ProjectionType': 'ALL'
+#     },
+#     TimeToLiveSpecification={
+#         'Enabled': True,
+#         'AttributeName': 'expires_at'
+#     }
+# )
 
-data_db_credentials = config['data_db_credentials']
-client_data = pymongo.MongoClient(data_db_credentials['service'], data_db_credentials['port'], username=data_db_credentials['username'], password=data_db_credentials['password'])
-data_db = client_data[data_db_credentials['db']]
+# app.mount("/media", StaticFiles(directory=uploads_directory), name="media")
 
-payloads_directory = config['payloads_directory']
-uploads_directory = config['uploads_directory']
-
-app.mount("/media", StaticFiles(directory=uploads_directory), name="media")
 
 # OAuth login route
 @app.get('/auth/login')
@@ -102,13 +116,15 @@ async def auth_callback(request: Request):
         email = user_info['email']
         username = user_info.get('name', email.split('@')[0])
 
-        user = users_db['users'].find_one({'email': email})
+        user = users_table.get_item(Key={'email': email}).get('Item')
         if not user:
-            users_db['users'].insert_one({
+            _id = str(uuid.uuid4())
+            users_table.put_item(Item={
                 'username': username,
                 'email': email,
                 'password': None,
-                'oauth_provider': 'google'
+                'oauth_provider': 'google',
+                '_id': _id
             })
 
         payload = {
@@ -134,7 +150,7 @@ def authentication_required(request: Request):
     bearer_token = auth_header.split()[1]
     try:
         data = jwt.decode(bearer_token, SECRET_KEY, algorithms=["HS256"])
-        user = users_db['users'].find_one({'email': data.get('email')})
+        user = users_table.get_item(Key={'email': data.get('email')}).get('Item')
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='User not found')
     except Exception as e:
@@ -148,7 +164,7 @@ def get_user(token_data):
     email = token_data.get('email')
     if not email:
         return None
-    user = users_db['users'].find_one({'email': email})
+    user = users_table.get_item(Key={'email': email}).get('Item')
     if user:
         return {
             '_id': str(user.get('_id')),
@@ -198,7 +214,7 @@ def signup(signup_request: SignupRequest, background_tasks: BackgroundTasks):
         username = payload.get('username', '')
         email = payload.get('email', '')
         password = payload.get('password', '')
-        if users_db['users'].find_one({'email': email}):
+        if users_table.get_item(Key={'email': email}).get('Item'):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Email already exists')
         hashed_password = generate_password_hash(password)
 
@@ -210,7 +226,7 @@ def signup(signup_request: SignupRequest, background_tasks: BackgroundTasks):
         # r.setex(f"{email}_verification_code", 600, verification_code)
         r.set(f"{email}_verification_code", verification_code, ex=600)
 
-        users_db['users'].insert_one({
+        users_table.put_item(Item={
             'username': username,
             'email': email,
             'password': hashed_password,
@@ -231,9 +247,13 @@ def verify_email(verification_request: VerificationRequest):
     try:
         email = verification_request.email
         code = verification_request.code
-        user = users_db['users'].find_one({'email': email})
+        user = users_table.get_item(Key={'email': email}).get('Item')
         if user and r.get(f"{email}_verification_code") == code:
-            users_db['users'].update_one({'email': email}, {'$set': {'is_verified': True}, '$unset': {'expires_at': ''}})
+            users_table.update_item(
+                Key={'email': email},
+                UpdateExpression='SET is_verified = :is_verified REMOVE expires_at',
+                ExpressionAttributeValues={':is_verified': True}
+            )
             r.delete(f"{email}_verification_code")
             return {'message': 'Email verified successfully', 'status': True}
         else:
@@ -251,7 +271,7 @@ def login(login_request: LoginRequest):
     try:
         email = login_request.email
         password = login_request.password
-        user = users_db['users'].find_one({'email': email})
+        user = users_table.get_item(Key={'email': email}).get('Item')
         if user and check_password_hash(user['password'], password):
             data = {
                 '_id': str(user['_id']),
@@ -262,7 +282,11 @@ def login(login_request: LoginRequest):
             token = jwt.encode(data, SECRET_KEY, algorithm="HS256")
             if isinstance(token, bytes):
                 token = token.decode('utf-8')
-            users_db['users'].update_one({'email': email}, {'$set': {'token': token}})
+            users_table.update_item(
+                Key={'email': email},
+                UpdateExpression='SET token = :token',
+                ExpressionAttributeValues={':token': token}
+            )
             return JSONResponse(status_code=200, content={'token': token, 'status': True})
         else:
             return JSONResponse(status_code=401, content={'error': 'Invalid email or password', 'status': False})
@@ -276,7 +300,10 @@ def logout(token_data: dict = Depends(authentication_required)):
     try:
         user = get_user(token_data)
         if user:
-            users_db['users'].update_one({'email': user['email']}, {'$unset': {'token': ''}})
+            users_table.update_item(
+                Key={'email': user['email']},
+                UpdateExpression='REMOVE token'
+            )
             return {'message': 'Logout successful', 'status': True}, 200
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
@@ -299,42 +326,43 @@ def get_user_api(token_data: dict = Depends(authentication_required)):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Internal server error')
 
 # job description creation and management
-class jd_data(BaseModel):
-    role : str
-    location : str
-    skills : str
-    experience : int
-    education : str
-    link: str
-@app.post("/create_jd")
-def create_job_description(data: jd_data, dep=Depends(authentication_required)):
-    jd_id = uuid.uuid4().hex
-    data.link = f"/job/{jd_id}/apply"
-    # jd = jd_create(data)
-    jd = ''
-    user_data = get_user(dep)
-    if not user_data:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
-    payload = {
-        "_id": jd_id,
-        "jd": jd,
-        "role": data.role,
-        "location": data.location,
-        "skills": data.skills,
-        "experience": data.experience,
-        "education": data.education,
-        "link": data.link,
-        "user_id": user_data['_id'],
-        "created_at": datetime.datetime.utcnow(),        
-        "posted": False
-    }
-    data_db['job_descriptions'].insert_one(payload)
-    return JSONResponse(status_code=200, content={"message": 'Job description created successfully', "job_id": jd_id})
+# class jd_data(BaseModel):
+#     role : str
+#     location : str
+#     skills : str
+#     experience : int
+#     education : str
+#     link: str
+# @app.post("/create_jd")
+# def create_job_description(data: jd_data, dep=Depends(authentication_required)):
+#     jd_id = uuid.uuid4().hex
+#     data.link = f"/job/{jd_id}/apply"
+#     # job_description = jd_create(data)
+#     job_description = ''
+#     user_data = get_user(dep)
+#     if not user_data:
+#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+#     payload = {
+#         "_id": jd_id,
+#         "job_description": job_description,
+#         "role": data.role,
+#         "location": data.location,
+#         "skills": data.skills,
+#         "experience": data.experience,
+#         "education": data.education,
+#         "link": data.link,
+#         "user_id": user_data['_id'],
+#         "created_at": datetime.datetime.utcnow(),        
+#         "posted": False
+#     }
+#     data_db['job_descriptions'].insert_one(payload)
+#     return JSONResponse(status_code=200, content={"message": 'Job description created successfully', "job_id": jd_id})
 
 @app.get("/get_jd/{jd_id}")
 def get_job_description(jd_id: str, dep=Depends(authentication_required)):
     try:
-        job = data_db['job_descriptions'].find_one({"_id": jd_id})
+        response = job_descriptions_table.get_item(Key={'_id': jd_id})
+        job = response.get('Item')
         if job:
             if job['posted']:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job description already posted")
@@ -348,14 +376,18 @@ def get_job_description(jd_id: str, dep=Depends(authentication_required)):
         return JSONResponse(status_code=500, content=str(e))
 
 class FinalizeJDRequest(BaseModel):
-    jd: str
+    job_description: str
 @app.post('/finalize_jd/{jd_id}')
 def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends(authentication_required)):
     try:
-        job = data_db['job_descriptions'].find_one({"_id": jd_id})
+        job = job_descriptions_table.get_item(Key={'_id': jd_id}).get('Item')
         if job:
-            job['jd'] = request.jd
-            data_db['job_descriptions'].update_one({"_id": jd_id}, {"$set": {"jd": request.jd}})
+            job['job_description'] = request.job_description
+            job_descriptions_table.update_item(
+                Key={'_id': jd_id},
+                UpdateExpression="SET job_description = :job_description",
+                ExpressionAttributeValues={":job_description": request.job_description}
+            )
             user_data = get_user(dep)
             post = {
                 "user": {
@@ -366,7 +398,7 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
                 "post_type": "job",
                 "jd_id": jd_id,
                 "created_at": datetime.datetime.utcnow(),
-                "content": request.jd,
+                "content": request.job_description,
                 "interactions":{
                     "likes": [],
                     "comments": [],
@@ -374,8 +406,12 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
                 },
 
             }
-            data_db['posts'].insert_one(post)
-            data_db['job_descriptions'].update_one({"_id": jd_id}, {"$set": {"posted": True}})
+            posts_table.put_item(Item=post)
+            job_descriptions_table.update_item(
+                Key={'_id': jd_id},
+                UpdateExpression="SET posted = :posted",
+                ExpressionAttributeValues={":posted": True}
+            )
             return JSONResponse(status_code=200, content={"message": "Job is posted successfully"})
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job description not found")
@@ -388,7 +424,9 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
 def get_posts(dep=Depends(authentication_required)):
     try:
         all_posts = []
-        posts_cursor = data_db['posts'].find({}).sort("created_at", -1)
+        # posts_cursor = data_db['posts'].find({}).sort("created_at", -1)
+        response = posts_table.scan()
+        posts_cursor = response.get('Items', [])
         for post in posts_cursor:
             post['_id'] = str(post['_id'])
             post['created_at'] = str(post['created_at'])
@@ -412,9 +450,9 @@ def get_posts(dep=Depends(authentication_required)):
         return JSONResponse(status_code=500, content=str(e))
 
 # @app.post("/post_on_linkedin")
-# def post_on_linkedin(jd:str, dep=Depends(authentication_required)):
+# def post_on_linkedin(job_description:str, dep=Depends(authentication_required)):
 #     try:
-#         response = post_jd_on_linkedin(jd)
+#         response = post_jd_on_linkedin(job_description)
 #         return JSONResponse(status_code=200, content={"response": response})
 #     except Exception as e:
 #         print(f"Error posting on LinkedIn: {e}", flush=True)
@@ -422,9 +460,9 @@ def get_posts(dep=Depends(authentication_required)):
 #         return JSONResponse(status_code=500, content=str(e))
 
 # @app.post("/select_candidates")
-# def select_candidates(jd:str, dep=Depends(authentication_required)):
+# def select_candidates(job_description:str, dep=Depends(authentication_required)):
 #     try:
-#         response = select_send_email(jd)
+#         response = select_send_email(job_description)
 #         return JSONResponse(status_code=200, content={'response': response})
 #     except Exception as e:
 #         print(f"Error selecting candidates: {e}", flush=True)
@@ -453,15 +491,24 @@ def like_post(request: LikePostRequest, dep=Depends(authentication_required)):
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
 
-        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        response = posts_table.get_item(Key={'_id': post_id})
+        post = response.get('Item')
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
         
         if user_data['_id'] in post['interactions']['likes']:
-            data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$pull": {"interactions.likes": user_data['_id']}})
+            posts_table.update_item(
+                Key={'_id': post_id},
+                UpdateExpression="DELETE interactions.likes :user_id",
+                ExpressionAttributeValues={":user_id": user_data['_id']}
+            )
             return JSONResponse(status_code=200, content={"message": "Post unliked successfully"})
 
-        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$addToSet": {"interactions.likes": user_data['_id']}})
+        posts_table.update_item(
+            Key={'_id': post_id},
+            UpdateExpression="ADD interactions.likes :user_id",
+            ExpressionAttributeValues={":user_id": user_data['_id']}
+        )
         return JSONResponse(status_code=200, content={"message": "Post liked successfully"})
     except Exception as e:
         print(f"Error liking post: {e}", flush=True)
@@ -480,12 +527,17 @@ def comment_post(request: CommentPostRequest, dep=Depends(authentication_require
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
 
-        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        response = posts_table.get_item(Key={'_id': post_id})
+        post = response.get('Item')
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
         comment_id = uuid.uuid4().hex
-        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$push": {"interactions.comments": {"_id": comment_id, "user_id": user_data['_id'], "username": user_data['username'],"comment": comment, "created_at": datetime.datetime.utcnow(), 'likes': [], 'replies': []}}})
+        posts_table.update_item(
+            Key={'_id': post_id},
+            UpdateExpression="ADD interactions.comments :comment",
+            ExpressionAttributeValues={":comment": {"_id": comment_id, "user_id": user_data['_id'], "username": user_data['username'], "comment": comment, "created_at": datetime.datetime.utcnow(), 'likes': [], 'replies': []}}
+        )
         return JSONResponse(status_code=200, content={"message": "Comment added successfully"})
     except Exception as e:
         print(f"Error commenting on post: {e}", flush=True)
@@ -505,7 +557,8 @@ def like_comment(request: LikeCommentRequest, dep=Depends(authentication_require
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
 
-        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        response = posts_table.get_item(Key={'_id': post_id})
+        post = response.get('Item')
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
@@ -514,10 +567,20 @@ def like_comment(request: LikeCommentRequest, dep=Depends(authentication_require
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
 
         if user_data['_id'] in comment['likes']:
-            data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$pull": {"interactions.comments.$[c].likes": user_data['_id']}}, array_filters=[{"c._id": comment_id}])
+            posts_table.update_item(
+                Key={'_id': post_id},
+                UpdateExpression="DELETE interactions.comments.$[c].likes :user_id",
+                ExpressionAttributeValues={":user_id": user_data['_id']},
+                ArrayFilters=[{"c._id": comment_id}]
+            )
             return JSONResponse(status_code=200, content={"message": "Comment unliked successfully"})
 
-        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$addToSet": {"interactions.comments.$[c].likes": user_data['_id']}}, array_filters=[{"c._id": comment_id}])
+        posts_table.update_item(
+            Key={'_id': post_id},
+            UpdateExpression="ADD interactions.comments.$[c].likes :user_id",
+            ExpressionAttributeValues={":user_id": user_data['_id']},
+            ArrayFilters=[{"c._id": comment_id}]
+        )
         return JSONResponse(status_code=200, content={"message": "Comment liked successfully"})
     except Exception as e:
         print(f"Error liking comment: {e}", flush=True)
@@ -538,7 +601,8 @@ def reply_comment(request: ReplyCommentRequest, dep=Depends(authentication_requi
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
 
-        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        response = posts_table.get_item(Key={'_id': post_id})
+        post = response.get('Item')
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
@@ -547,7 +611,12 @@ def reply_comment(request: ReplyCommentRequest, dep=Depends(authentication_requi
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
 
         reply_id = uuid.uuid4().hex
-        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$push": {"interactions.comments.$[c].replies": {"_id": reply_id, "user_id": user_data['_id'], "username": user_data['username'], "reply": reply, "created_at": datetime.datetime.utcnow()}}}, array_filters=[{"c._id": comment_id}])
+        posts_table.update_item(
+            Key={'_id': post_id},
+            UpdateExpression="ADD interactions.comments.$[c].replies :reply",
+            ExpressionAttributeValues={":reply": {"_id": reply_id, "user_id": user_data['_id'], "username": user_data['username'], "reply": reply, "created_at": datetime.datetime.utcnow()}},
+            ArrayFilters=[{"c._id": comment_id}]
+        )
         return JSONResponse(status_code=200, content={"message": "Reply added successfully"})
     except Exception as e:
         print(f"Error replying to comment: {e}", flush=True)
@@ -567,7 +636,8 @@ def delete_comment(request: deleteCommentRequest, dep=Depends(authentication_req
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
 
-        post = data_db['posts'].find_one({"_id": ObjectId(post_id)})
+        response = posts_table.get_item(Key={'_id': post_id})
+        post = response.get('Item')
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
@@ -578,7 +648,11 @@ def delete_comment(request: deleteCommentRequest, dep=Depends(authentication_req
         if comment['user_id'] != user_data['_id']:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own comments")
 
-        data_db['posts'].update_one({"_id": ObjectId(post_id)}, {"$pull": {"interactions.comments": {"_id": comment_id}}})
+        posts_table.update_item(
+            Key={'_id': post_id},
+            UpdateExpression="DELETE interactions.comments.$[c]",
+            ArrayFilters=[{"c._id": comment_id}]
+        )
         return JSONResponse(status_code=200, content={"message": "Comment deleted successfully"})
     except Exception as e:
         print(f"Error deleting comment: {e}", flush=True)
@@ -618,17 +692,15 @@ async def upload_profile(file: UploadFile = File(...), dep=Depends(authenticatio
             )
 
         filename = f"{uuid.uuid4().hex}.{file_extension}"
-        relative_path = f"{user_data['_id']}/profile_picture/{filename}" 
-        absolute_path = os.path.join(uploads_directory, relative_path)
-        os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
 
-        with open(absolute_path, "wb") as f:
-            f.write(await file.read())
-
-        media_url = f"/media/{relative_path}"
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$set': {'profilePicture': media_url}}
+        # store in s3 bucket
+        s3_key = f"profile_pictures/{user_data['_id']}/{filename}"
+        S3.upload_fileobj(file.file, os.getenv('AWS_S3_PROFILE_PICTURE_BUCKET_NAME'), s3_key, ExtraArgs={'ContentType': file.content_type, 'ACL': 'public-read'})
+        media_url = f"https://{os.getenv('AWS_S3_PROFILE_PICTURE_BUCKET_NAME')}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        users_table.update_item(
+            Key={'email': user_data['email']},
+            UpdateExpression='SET profilePicture = :profilePicture',
+            ExpressionAttributeValues={':profilePicture': media_url}
         )
 
         return JSONResponse(
@@ -682,17 +754,32 @@ async def upload_resume(file: UploadFile = File(...), dep=Depends(authentication
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File name cannot be empty"
             )
-        relative_path = f"{user_data['_id']}/resumes/{filename}" 
-        absolute_path = os.path.join(uploads_directory, relative_path)
-        os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+        # relative_path = f"{user_data['_id']}/resumes/{filename}" 
+        # absolute_path = os.path.join(uploads_directory, relative_path)
+        # os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
 
-        with open(absolute_path, "wb") as f:
-            f.write(await file.read())
+        # with open(absolute_path, "wb") as f:
+        #     f.write(await file.read())
 
-        media_url = f"/media/{relative_path}"
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$set': {'resume': media_url}}
+        # media_url = f"/media/{relative_path}"
+        # users_db['users'].update_one(
+        #     {'_id': ObjectId(user_data['_id'])},
+        #     {'$set': {'resume': media_url}}
+        # )
+
+        # store in s3 bucket
+        s3_key = f"resumes/{user_data['_id']}/{filename}"
+        S3.upload_fileobj(file.file, os.getenv('AWS_S3_RESUME_BUCKET_NAME'), s3_key, ExtraArgs={'ContentType': file.content_type, 'ACL': 'public-read'})
+        media_url = f"https://{os.getenv('AWS_S3_RESUME_BUCKET_NAME')}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        users_table.update_item(
+            Key={'id': user_data['_id']},
+            UpdateExpression='SET resume = :resume',
+            ExpressionAttributeValues={':resume': media_url}
+        )
+        users_table.update_item(
+            Key={'id': user_data['_id']},
+            UpdateExpression='SET resume = :resume',
+            ExpressionAttributeValues={':resume': media_url}
         )
 
         return JSONResponse(
@@ -718,10 +805,12 @@ async def add_experience(request: Request, dep=Depends(authentication_required))
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
         
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$set': {'experience': experience}}
+        users_table.update_item(
+            Key={'id': user_data['_id']},
+            UpdateExpression='SET experience = :experience',
+            ExpressionAttributeValues={':experience': experience}
         )
+
         return JSONResponse(status_code=200, content={"success": True})
     except Exception as e:
         print(f"Error adding experience: {e}", flush=True)
@@ -740,9 +829,10 @@ async def add_skill(request: Request, dep=Depends(authentication_required)):
         if not user_data:
             raise HTTPException(status=status.HTTP_401_UNAUTHORIZED, detail="user not authenticated")
         
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$addToSet': {'skills': skill}}
+        users_table.update_item(
+            Key={'_id': user_data['_id']},
+            UpdateExpression="ADD skills :skill",
+            ExpressionAttributeValues={":skill": {skill}}
         )
         return JSONResponse(status_code=200, content={"success": True})
     except Exception as e:
@@ -762,9 +852,10 @@ async def remove_skill(request: Request, dep=Depends(authentication_required)):
         if not user_data:
             raise HTTPException(status=status.HTTP_401_UNAUTHORIZED, detail="user not authenticated")
         
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$pull': {'skills': skill}}
+        users_table.update_item(
+            Key={'_id': user_data['_id']},
+            UpdateExpression="DELETE skills :skill",
+            ExpressionAttributeValues={":skill": {skill}}
         )
         return JSONResponse(status_code=200, content={"success": True})
     except Exception as e:
@@ -781,9 +872,10 @@ async def add_course(request: Request, dep=Depends(authentication_required)):
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
         
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$set': {'courses': courses}}
+        users_table.update_item(
+            Key={'_id': user_data['_id']},
+            UpdateExpression='SET courses = :courses',
+            ExpressionAttributeValues={':courses': courses}
         )
         return JSONResponse(status_code=200, content={"success": True})
     except Exception as e:
@@ -799,10 +891,22 @@ async def add_certification(request: Request, dep=Depends(authentication_require
         user_data = get_user(dep)
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
-        
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$set': {'certifications': certifications}}
+
+        users_table.update_item(
+            Key={'_id': user_data['_id']},
+            UpdateExpression='SET certifications = :certifications',
+            ExpressionAttributeValues={':certifications': certifications}
+        )
+        return JSONResponse(status_code=200, content={"success": True})
+    except Exception as e:
+        print(f"Error adding certifications: {e}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+        users_table.update_item(
+            Key={'_id': user_data['_id']},
+            UpdateExpression='SET certifications = :certifications',
+            ExpressionAttributeValues={':certifications': certifications}
         )
         return JSONResponse(status_code=200, content={"success": True})
     except Exception as e:
@@ -820,10 +924,15 @@ async def edit_user_data(request: Request, dep=Depends(authentication_required))
         if not user_data:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
         
-        users_db['users'].update_one(
-            {'_id': ObjectId(user_data['_id'])},
-            {'$set': userData}
+        update_expression = "SET " + ", ".join([f"{key} = :{key}" for key in userData.keys()])
+        expression_attribute_values = {f":{key}": value for key, value in userData.items()}
+
+        users_table.update_item(
+            Key={'_id': user_data['_id']},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_attribute_values
         )
+
         return JSONResponse(status_code=200, content={"success": True})
     except Exception as e:
         print(f"Error updating user data: {e}", flush=True)
@@ -928,7 +1037,7 @@ async def fetch_applicants(job_id: str, dep=Depends(authentication_required)):
                 "success": True,
                 "candidates": [candidate.model_dump() for candidate in candidates]
             }
-)
+        )
 
     except Exception as e:
         print(f"Error updating fetch applicants: {e}", flush=True)
@@ -939,7 +1048,10 @@ async def fetch_applicants(job_id: str, dep=Depends(authentication_required)):
 def get_jobs(dep=Depends(authentication_required)):
     try:
         all_jobs = []
-        jobs_cursor = data_db['job_descriptions'].find({"posted": True}).sort("created_at", -1)
+        # jobs_cursor = data_db['job_descriptions'].find({"posted": True}).sort("created_at", -1)
+        response = job_descriptions_table.scan()
+        jobs_cursor = [job for job in response.get('Items', []) if job.get('posted')]
+    
         for job in jobs_cursor:
             job['_id'] = str(job['_id'])
             job['created_at'] = str(job['created_at'])
@@ -993,14 +1105,19 @@ def apply(request: applyRequest, dep=Depends(authentication_required)):
         email = dep.get('email')
         job_id = request.jobId
         print(job_id, flush=True)
-        job = data_db['job_descriptions'].find_one({"_id": job_id})
+        response = job_descriptions_table.get_item(Key={'_id': job_id})
+        job = response.get('Item')
         if not job:
             return JSONResponse(status_code=404, content={"message": "Job not found"})
         if not 'applicants' in job:
             job['applicants'] = []
         if email in job['applicants']:
             return JSONResponse(status_code=400, content={"message": "You have already applied for this job"})
-        data_db['job_descriptions'].update_one({"_id": job_id}, {"$push": {"applicants": email}})
+        job_descriptions_table.update_item(
+            Key={'_id': job_id},
+            UpdateExpression="ADD applicants :email",
+            ExpressionAttributeValues={":email": email}
+        )
         return JSONResponse(status_code=200, content={"message": "Applied successfully"})
     except Exception as e:
         print(f"Error applying for job: {e}", flush=True)
