@@ -9,7 +9,8 @@ import yaml
 from utils import *
 import traceback
 import jwt
-import datetime
+from datetime import datetime
+import pytz
 from functools import wraps
 from bson import ObjectId
 import os
@@ -30,21 +31,12 @@ from starlette.responses import RedirectResponse
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# HR Agent
-# from hr_agent.create_jd import jd_create
-# from hr_agent.linkedin_post import post_jd_on_linkedin
-# from hr_agent.resume_selection import select_send_email
-# from hr_agent.question_generation import generate_questions
-# from hr_agent.linkedin_auth import router as linkedin_router
-
-config = yaml.load(open("config.yaml"), Loader=yaml.FullLoader)
-
 r = redis.Redis(host=os.getenv('redis_host'), port=os.getenv('redis_port'), db=0, decode_responses=True)
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_URL")],  # Frontend origin
+    allow_origins=[os.getenv("FRONTEND_URL_DEVELOPMENT"), os.getenv("FRONTEND_URL_PRODUCTION")],  # Frontend origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,6 +88,7 @@ S3 = boto3.client('s3', region_name=os.getenv('AWS_REGION'), aws_access_key_id=o
 
 # app.mount("/media", StaticFiles(directory=uploads_directory), name="media")
 
+IST = pytz.timezone("Asia/Kolkata")
 
 # OAuth login route
 @app.get('/auth/login')
@@ -135,7 +128,7 @@ async def auth_callback(request: Request):
         }
         jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
-        frontend_redirect = f"{os.getenv('FRONTEND_URL')}/auth/complete"
+        frontend_redirect = f"{os.getenv('FRONTEND_URL_DEVELOPMENT')}/auth/complete"
         return RedirectResponse(f"{frontend_redirect}?token={jwt_token}")
         
     except Exception as e:
@@ -361,11 +354,13 @@ def get_user_api(token_data: dict = Depends(authentication_required)):
 @app.get("/get_jd/{jd_id}")
 def get_job_description(jd_id: str, dep=Depends(authentication_required)):
     try:
-        response = job_descriptions_table.get_item(Key={'_id': jd_id})
+        response = job_descriptions_table.get_item(Key={'jd_id': jd_id})
         job = response.get('Item')
+        print('job', job, flush=True)
         if job:
-            if job['posted']:
+            if 'posted' in job and job['posted']:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job description already posted")
+            job['experience'] = int(job['experience']) if 'experience' in job else None
             job['created_at'] =  str(job['created_at']) if 'created_at' in job else None
             return JSONResponse(status_code=200, content={"job": job})
         else:
@@ -380,16 +375,19 @@ class FinalizeJDRequest(BaseModel):
 @app.post('/finalize_jd/{jd_id}')
 def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends(authentication_required)):
     try:
-        job = job_descriptions_table.get_item(Key={'_id': jd_id}).get('Item')
+        job = job_descriptions_table.get_item(Key={'jd_id': jd_id}).get('Item')
         if job:
             job['job_description'] = request.job_description
             job_descriptions_table.update_item(
-                Key={'_id': jd_id},
+                Key={'jd_id': jd_id},
                 UpdateExpression="SET job_description = :job_description",
                 ExpressionAttributeValues={":job_description": request.job_description}
             )
             user_data = get_user(dep)
+            post_id = str(uuid.uuid4())
+            now_ist = datetime.now(IST)
             post = {
+                "_id": post_id,
                 "user": {
                         "_id": user_data['_id'],
                         "username": user_data.get('username', ''),
@@ -397,18 +395,17 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
                         },
                 "post_type": "job",
                 "jd_id": jd_id,
-                "created_at": datetime.datetime.utcnow(),
+                "created_at": now_ist.isoformat(),
                 "content": request.job_description,
                 "interactions":{
                     "likes": [],
                     "comments": [],
                     "shares": []
                 },
-
             }
             posts_table.put_item(Item=post)
             job_descriptions_table.update_item(
-                Key={'_id': jd_id},
+                Key={'jd_id': jd_id},
                 UpdateExpression="SET posted = :posted",
                 ExpressionAttributeValues={":posted": True}
             )
@@ -424,12 +421,9 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
 def get_posts(dep=Depends(authentication_required)):
     try:
         all_posts = []
-        # posts_cursor = data_db['posts'].find({}).sort("created_at", -1)
         response = posts_table.scan()
         posts_cursor = response.get('Items', [])
         for post in posts_cursor:
-            post['_id'] = str(post['_id'])
-            post['created_at'] = str(post['created_at'])
             for comment in post['interactions']['comments']:
                 comment['user_id'] = str(comment['user_id'])
                 comment['created_at'] = str(comment['created_at'])
@@ -1048,12 +1042,11 @@ async def fetch_applicants(job_id: str, dep=Depends(authentication_required)):
 def get_jobs(dep=Depends(authentication_required)):
     try:
         all_jobs = []
-        # jobs_cursor = data_db['job_descriptions'].find({"posted": True}).sort("created_at", -1)
         response = job_descriptions_table.scan()
         jobs_cursor = [job for job in response.get('Items', []) if job.get('posted')]
     
         for job in jobs_cursor:
-            job['_id'] = str(job['_id'])
+            job['jd_id'] = str(job['jd_id'])
             job['created_at'] = str(job['created_at'])
             user = users_db['users'].find_one({"_id": ObjectId(job['user_id'])})
             job['user'] = {
@@ -1105,7 +1098,7 @@ def apply(request: applyRequest, dep=Depends(authentication_required)):
         email = dep.get('email')
         job_id = request.jobId
         print(job_id, flush=True)
-        response = job_descriptions_table.get_item(Key={'_id': job_id})
+        response = job_descriptions_table.get_item(Key={'job_id': job_id})
         job = response.get('Item')
         if not job:
             return JSONResponse(status_code=404, content={"message": "Job not found"})
@@ -1114,7 +1107,7 @@ def apply(request: applyRequest, dep=Depends(authentication_required)):
         if email in job['applicants']:
             return JSONResponse(status_code=400, content={"message": "You have already applied for this job"})
         job_descriptions_table.update_item(
-            Key={'_id': job_id},
+            Key={'job_id': job_id},
             UpdateExpression="ADD applicants :email",
             ExpressionAttributeValues={":email": email}
         )
