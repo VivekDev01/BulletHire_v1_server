@@ -9,7 +9,7 @@ import yaml
 from utils import *
 import traceback
 import jwt
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from functools import wraps
 from bson import ObjectId
@@ -124,7 +124,7 @@ async def auth_callback(request: Request):
             '_id': str(user['_id']) if user else '',
             'email': email,
             'username': username,
-            'date': datetime.datetime.utcnow().isoformat()
+            'date': datetime.utcnow().isoformat()
         }
         jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
@@ -186,7 +186,7 @@ def send_verification_email(email: str, code: str, username: str):
     template_file = "verification_mail_template.html.jinja"
     env = Environment(loader=FileSystemLoader('templates'))
     template = env.get_template(template_file)
-    html_content = template.render(username=username, code=code, year=datetime.datetime.now().year)
+    html_content = template.render(username=username, code=code, year=datetime.now().year)
 
     res = requests.post(f"{os.getenv('mail_service_url')}/api/send_email", json={
         'to_email': email,
@@ -211,7 +211,7 @@ def signup(signup_request: SignupRequest, background_tasks: BackgroundTasks):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Email already exists')
         hashed_password = generate_password_hash(password)
 
-        expiration_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+        expiration_time = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
         verification_code = str(generate_verification_code())
 
         background_tasks.add_task(send_verification_email, email, verification_code, username)
@@ -220,6 +220,7 @@ def signup(signup_request: SignupRequest, background_tasks: BackgroundTasks):
         r.set(f"{email}_verification_code", verification_code, ex=600)
 
         users_table.put_item(Item={
+            '_id': str(uuid.uuid4()),
             'username': username,
             'email': email,
             'password': hashed_password,
@@ -270,16 +271,11 @@ def login(login_request: LoginRequest):
                 '_id': str(user['_id']),
                 'username': user['username'],
                 'email': user['email'],
-                'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             }
             token = jwt.encode(data, SECRET_KEY, algorithm="HS256")
             if isinstance(token, bytes):
                 token = token.decode('utf-8')
-            users_table.update_item(
-                Key={'email': email},
-                UpdateExpression='SET token = :token',
-                ExpressionAttributeValues={':token': token}
-            )
             return JSONResponse(status_code=200, content={'token': token, 'status': True})
         else:
             return JSONResponse(status_code=401, content={'error': 'Invalid email or password', 'status': False})
@@ -385,7 +381,6 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
             )
             user_data = get_user(dep)
             post_id = str(uuid.uuid4())
-            now_ist = datetime.now(IST)
             post = {
                 "_id": post_id,
                 "user": {
@@ -395,7 +390,7 @@ def finalize_job_description(jd_id: str, request: FinalizeJDRequest, dep=Depends
                         },
                 "post_type": "job",
                 "jd_id": jd_id,
-                "created_at": now_ist.isoformat(),
+                "created_at": datetime.utcnow().isoformat(),
                 "content": request.job_description,
                 "interactions":{
                     "likes": [],
@@ -435,9 +430,9 @@ def get_posts(dep=Depends(authentication_required)):
                     reply['_id'] = str(reply['_id'])
             all_posts.append(post)
         if all_posts:
-            return JSONResponse(status_code=200, content={"posts": all_posts})
+            return JSONResponse(status_code=200, content={"posts": all_posts, "message": "Posts fetched successfully"})
         else:
-            return JSONResponse(status_code=404, content={"message": "No posts found"})
+            return JSONResponse(status_code=204, content={"message": "No posts found", "posts": []})
     except Exception as e:
         print(f"Error fetching posts: {e}", flush=True)
         traceback.print_exc()
@@ -530,7 +525,7 @@ def comment_post(request: CommentPostRequest, dep=Depends(authentication_require
         posts_table.update_item(
             Key={'_id': post_id},
             UpdateExpression="ADD interactions.comments :comment",
-            ExpressionAttributeValues={":comment": {"_id": comment_id, "user_id": user_data['_id'], "username": user_data['username'], "comment": comment, "created_at": datetime.datetime.utcnow(), 'likes': [], 'replies': []}}
+            ExpressionAttributeValues={":comment": {"_id": comment_id, "user_id": user_data['_id'], "username": user_data['username'], "comment": comment, "created_at": datetime.utcnow().isoformat(), 'likes': [], 'replies': []}}
         )
         return JSONResponse(status_code=200, content={"message": "Comment added successfully"})
     except Exception as e:
@@ -608,7 +603,7 @@ def reply_comment(request: ReplyCommentRequest, dep=Depends(authentication_requi
         posts_table.update_item(
             Key={'_id': post_id},
             UpdateExpression="ADD interactions.comments.$[c].replies :reply",
-            ExpressionAttributeValues={":reply": {"_id": reply_id, "user_id": user_data['_id'], "username": user_data['username'], "reply": reply, "created_at": datetime.datetime.utcnow()}},
+            ExpressionAttributeValues={":reply": {"_id": reply_id, "user_id": user_data['_id'], "username": user_data['username'], "reply": reply, "created_at": datetime.utcnow().isoformat()}},
             ArrayFilters=[{"c._id": comment_id}]
         )
         return JSONResponse(status_code=200, content={"message": "Reply added successfully"})
@@ -1042,18 +1037,14 @@ async def fetch_applicants(job_id: str, dep=Depends(authentication_required)):
 def get_jobs(dep=Depends(authentication_required)):
     try:
         all_jobs = []
-        response = job_descriptions_table.scan()
-        jobs_cursor = [job for job in response.get('Items', []) if job.get('posted')]
-    
-        for job in jobs_cursor:
-            job['jd_id'] = str(job['jd_id'])
-            job['created_at'] = str(job['created_at'])
-            user = users_db['users'].find_one({"_id": ObjectId(job['user_id'])})
-            job['user'] = {
-                "_id": str(user['_id']),
-                "username": user.get('username', ''),
-                "email": user.get('email', ''),
-            } if user else {}
+        posts = posts_table.scan().get("Items", [])
+
+        for post in posts:
+            jd_id = post.get('jd_id')
+            job = job_descriptions_table.get_item(Key={'jd_id': jd_id}).get('Item')    
+            job['user'] = post.get('user', {})
+            job['experience'] = int(job['experience']) if 'experience' in job else None
+            job['created_at'] =  str(post['created_at']) if 'created_at' in post else None
             all_jobs.append(job)
         if all_jobs:
             return JSONResponse(status_code=200, content={"jobs": all_jobs})

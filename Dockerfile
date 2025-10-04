@@ -21,7 +21,7 @@ RUN python3.11 -m pip install --ignore-installed flask flask_session flask-socke
 RUN python3.11 -m pip install bcrypt
 RUN python3.11 -m pip install pyjwt pem pyjwt[crypto]
 RUN python3.11 -m pip install charset-normalizer==3.4.1
-RUN python3.11 -m pip install fastapi==0.115.12
+RUN python3.11 -m pip install fastapi
 RUN python3.11 -m pip install google-api-core==2.24.2
 RUN python3.11 -m pip install google-api-python-client==2.170.0
 RUN python3.11 -m pip install google-auth==2.40.2
@@ -64,11 +64,12 @@ RUN python3.11 -m pip install rsa==4.9.1
 # RUN python3.11 -m pip install scikit-learn==1.6.1
 # RUN python3.11 -m pip install scipy==1.15.2
 # RUN python3.11 -m pip install sentence-transformers==3.4.1
-# RUN python3.11 -m pip install starlette==0.46.2
+RUN python3.11 -m pip install starlette
+RUN python3.11 -m pip install h11
 # RUN python3.11 -m pip install transformers==4.49.0
 RUN python3.11 -m pip install uritemplate==4.1.1
 RUN python3.11 -m pip install urllib3==2.3.0
-RUN python3.11 -m pip install uvicorn==0.34.3
+RUN python3.11 -m pip install uvicorn
 RUN python3.11 -m pip install Werkzeug==3.1.3
 RUN python3.11 -m pip install pymongo==4.13.2
 # RUN python3.11 -m pip install torch==2.1.2
