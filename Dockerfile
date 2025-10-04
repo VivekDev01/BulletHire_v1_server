@@ -83,5 +83,5 @@ COPY ./src ./src
 WORKDIR /src/
 
 # RUN ln -s /usr/bin/python3.11 /usr/bin/python  #-- for flask
-# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]    # -- for fastapi
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] 
 
